@@ -1,0 +1,13 @@
+# local env — may contain API keys (tracked: .env.example, .env.local)
+**/configs/.env
+
+# go build output
+bin/
+*.exe
+*.test
+*.out
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/

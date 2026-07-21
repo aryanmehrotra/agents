@@ -1,0 +1,105 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "GoFr Agents — Multi-Agent Observability",
+  "uid": "gofr-llm",
+  "tags": ["gofr", "llm", "agents"],
+  "time": { "from": "now-5m", "to": "now" },
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "stat", "title": "Inter-agent calls",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#FF7A00" }, "unit": "short" } },
+      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "sum(app_http_service_response_count{otel_scope_name=\"orchestrator\"})", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "HTTP requests",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#00ADD8" }, "unit": "short" } },
+      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "sum(app_http_response_count)", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "LLM requests",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#7289DA" }, "unit": "short" } },
+      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "sum(app_llm_request_count)", "refId": "A" } ]
+    },
+    {
+      "type": "stat", "title": "LLM tokens",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#3DA639" }, "unit": "short" } },
+      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [ { "expr": "sum(app_llm_tokens_per_request_sum)", "refId": "A" } ]
+    },
+
+    {
+      "type": "timeseries", "title": "HTTP throughput by route (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "normal" } }, "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "sum by (path) (rate(app_http_response_count{path!=\"\"}[1m]))", "legendFormat": "{{path}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Inter-agent calls by target service (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal" } }, "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "sum by (service) (rate(app_http_service_response_count{otel_scope_name=\"orchestrator\", service=~\".*-agent\"}[1m]))", "legendFormat": "{{service}}", "refId": "A" } ]
+    },
+
+    {
+      "type": "timeseries", "title": "LLM requests by operation (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "showPoints": "never" }, "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "sum by (operation) (rate(app_llm_request_count[1m]))", "legendFormat": "{{operation}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "HTTP latency p95 by route",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "s" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum by (le, path) (rate(app_http_response_bucket{path!=\"\"}[2m])))", "legendFormat": "{{path}}", "refId": "A" } ]
+    },
+
+    {
+      "type": "timeseries", "title": "Tokens by type (tok/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 2, "showPoints": "never" }, "unit": "short" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "sum by (token_type) (rate(app_llm_tokens_per_request_sum[1m]))", "legendFormat": "{{token_type}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Resident memory by agent",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 20 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "bytes" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "process_resident_memory_bytes", "legendFormat": "{{instance}}", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries", "title": "Goroutines by agent",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 20 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "short" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }, "tooltip": { "mode": "multi" } },
+      "targets": [ { "expr": "go_goroutines", "legendFormat": "{{instance}}", "refId": "A" } ]
+    }
+  ]
+}

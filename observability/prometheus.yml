@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: agents
+    static_configs:
+      - targets:
+          - "host.docker.internal:2121"  # data-agent
+          - "host.docker.internal:2122"  # support-agent
+          - "host.docker.internal:2123"  # kb-agent
+          - "host.docker.internal:2124"  # orchestrator
