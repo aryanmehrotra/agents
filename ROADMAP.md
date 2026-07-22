@@ -10,11 +10,11 @@ auth, rate-limiting and resilience for free.
 - **data-agent** — MCP agent loop over its own API
 - **support-agent** — ticket triage + SSE streaming
 - **kb-agent** — retrieval-augmented (RAG) helpdesk
+- **code-review-agent** — review a diff and comment inline
 
 ## Planned agents
 
 - [ ] **research-agent** — multi-source web research with citations
-- [ ] **code-review-agent** — review a diff and comment inline
 - [ ] **sql-agent** — natural language → SQL over a datasource
 - [ ] **summarizer-agent** — long-document / thread summarization
 - [ ] **pii-redaction-agent** — compliance / redaction
@@ -31,5 +31,10 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-22** — added **code-review-agent**: structured, file/line-anchored diff review + streamed
+  prose review, wired into the orchestrator's `review` route. AI code review is one of the most
+  commercially proven agent use cases right now — AI now generates 41% of code globally and GitHub
+  Copilot serves 20M users across 90% of the Fortune 100 ([HyScaler, "12 Enterprise AI Agents Use
+  Cases Transforming Enterprises in 2026"](https://hyscaler.com/insights/enterprise-ai-agents-use-cases/)).
 - **2026-07-22** — initial release: orchestrator + data / support / kb agents, the local test shim,
   and the Jaeger + Prometheus + Grafana observability stack.

@@ -1,8 +1,9 @@
 # orchestrator
 
 The multi-agent **front door**. It receives a user query, uses an LLM to route it to the right
-specialist (`data` / `support` / `kb`), and calls that agent over a **resilient GoFr HTTP service** —
-circuit breaker + retry + rate limiter + health check — all from config, no handler plumbing.
+specialist (`data` / `support` / `kb` / `review`), and calls that agent over a **resilient GoFr HTTP
+service** — circuit breaker + retry + rate limiter + health check — all from config, no handler
+plumbing.
 
 Because the orchestrator and the specialist both export traces, one `/assistant` call becomes a single
 **distributed trace across two services**.
@@ -61,6 +62,11 @@ curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
 # routed to kb-agent
 curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
   -d '{"query":"how many annual leave days do I get?"}'
+
+# routed to code-review-agent
+curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
+  -d '{"query":"--- a/user.go\n+++ b/user.go\n@@ -1,3 +1,3 @@\n-old\n+new"}'
 ```
 
-Point the specialists elsewhere with `DATA_AGENT_URL` / `SUPPORT_AGENT_URL` / `KB_AGENT_URL`.
+Point the specialists elsewhere with `DATA_AGENT_URL` / `SUPPORT_AGENT_URL` / `KB_AGENT_URL` /
+`CODE_REVIEW_AGENT_URL`.

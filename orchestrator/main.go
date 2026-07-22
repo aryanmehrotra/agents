@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb), and calls that
-// agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
+// to route it to the right specialist agent (data / support / kb / review), and calls
+// that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
 // health check, all from config. The front door itself is protected with API-key auth.
 //
 // Because both the orchestrator and the specialist export traces, one /assistant call
@@ -25,9 +25,10 @@ func main() {
 	// Register each specialist as a resilient HTTP service. These options are GoFr
 	// features working on the agent-to-agent calls — no extra code in the handler.
 	for name, addr := range map[string]string{
-		"data-agent":    envOr("DATA_AGENT_URL", "http://localhost:8000"),
-		"support-agent": envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
-		"kb-agent":      envOr("KB_AGENT_URL", "http://localhost:8002"),
+		"data-agent":        envOr("DATA_AGENT_URL", "http://localhost:8000"),
+		"support-agent":     envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
+		"kb-agent":          envOr("KB_AGENT_URL", "http://localhost:8002"),
+		"code-review-agent": envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
 	} {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
@@ -64,6 +65,10 @@ var routes = map[string]specialist{
 		b, _ := json.Marshal(map[string]string{"question": q})
 		return b
 	}},
+	"review": {"code-review-agent", "review", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"title": q, "diff": q})
+		return b
+	}},
 }
 
 func assistant(c *gofr.Context) (any, error) {
@@ -98,17 +103,20 @@ func assistant(c *gofr.Context) (any, error) {
 	}, nil
 }
 
-// classify asks the LLM which specialist should handle the query.
+// classify asks the LLM which specialist should handle the query, and falls back to a
+// deterministic keyword route when the model is unavailable or answers unexpectedly — so
+// routing stays correct even when the LLM is slow, rate-limited, or flaky under load.
 func classify(c *gofr.Context, query string) string {
 	resp, err := c.LLM().Generate(c, "You are a router for a multi-agent system. Classify the user "+
 		"request into exactly one word:\n"+
 		"- data: products, orders, inventory, revenue, stats\n"+
 		"- support: bug reports, errors, crashes, outages, tickets\n"+
 		"- kb: IT/HR policy, leave, VPN, passwords, how-to questions\n"+
+		"- review: a code diff / patch / pull request to review\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
-		return "data"
+		return keywordRoute(query)
 	}
 
 	switch w := strings.ToLower(strings.TrimSpace(resp.Content)); {
@@ -116,9 +124,40 @@ func classify(c *gofr.Context, query string) string {
 		return "support"
 	case strings.Contains(w, "kb"):
 		return "kb"
+	case strings.Contains(w, "review"):
+		return "review"
+	case strings.Contains(w, "data"):
+		return "data"
+	default:
+		return keywordRoute(query)
+	}
+}
+
+// keywordRoute is the deterministic fallback: a cheap heuristic used only when the model
+// errors or returns something unexpected, instead of silently dumping everything on "data".
+func keywordRoute(query string) string {
+	q := strings.ToLower(query)
+
+	switch {
+	case containsAny(q, "diff", "patch", "pull request", "code review", "changeset"):
+		return "review"
+	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
+		return "kb"
+	case containsAny(q, "crash", "error", "bug", "outage", "panic", "ticket", "not working"):
+		return "support"
 	default:
 		return "data"
 	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func envOr(key, def string) string {

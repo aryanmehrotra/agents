@@ -9,3 +9,4 @@ scrape_configs:
           - "host.docker.internal:2122"  # support-agent
           - "host.docker.internal:2123"  # kb-agent
           - "host.docker.internal:2124"  # orchestrator
+          - "host.docker.internal:2125"  # code-review-agent
