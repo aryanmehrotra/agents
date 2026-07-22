@@ -11,3 +11,8 @@ bin/
 .DS_Store
 .idea/
 .vscode/
+
+# compiled binaries (go build . emits one named after the module directory)
+/*/*-agent
+orchestrator/orchestrator
+localtest/*/claude-openai-shim
