@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb), and calls that
-// agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
+// to route it to the right specialist agent (data / support / kb / review), and calls
+// that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
 // health check, all from config. The front door itself is protected with API-key auth.
 //
 // Because both the orchestrator and the specialist export traces, one /assistant call
@@ -25,9 +25,10 @@ func main() {
 	// Register each specialist as a resilient HTTP service. These options are GoFr
 	// features working on the agent-to-agent calls — no extra code in the handler.
 	for name, addr := range map[string]string{
-		"data-agent":    envOr("DATA_AGENT_URL", "http://localhost:8000"),
-		"support-agent": envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
-		"kb-agent":      envOr("KB_AGENT_URL", "http://localhost:8002"),
+		"data-agent":        envOr("DATA_AGENT_URL", "http://localhost:8000"),
+		"support-agent":     envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
+		"kb-agent":          envOr("KB_AGENT_URL", "http://localhost:8002"),
+		"code-review-agent": envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
 	} {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
@@ -62,6 +63,10 @@ var routes = map[string]specialist{
 	}},
 	"kb": {"kb-agent", "ask", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
+	"review": {"code-review-agent", "review", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"title": q, "diff": q})
 		return b
 	}},
 }
@@ -105,6 +110,7 @@ func classify(c *gofr.Context, query string) string {
 		"- data: products, orders, inventory, revenue, stats\n"+
 		"- support: bug reports, errors, crashes, outages, tickets\n"+
 		"- kb: IT/HR policy, leave, VPN, passwords, how-to questions\n"+
+		"- review: a code diff / patch / pull request to review\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -116,6 +122,8 @@ func classify(c *gofr.Context, query string) string {
 		return "support"
 	case strings.Contains(w, "kb"):
 		return "kb"
+	case strings.Contains(w, "review"):
+		return "review"
 	default:
 		return "data"
 	}
