@@ -103,7 +103,9 @@ func assistant(c *gofr.Context) (any, error) {
 	}, nil
 }
 
-// classify asks the LLM which specialist should handle the query.
+// classify asks the LLM which specialist should handle the query, and falls back to a
+// deterministic keyword route when the model is unavailable or answers unexpectedly — so
+// routing stays correct even when the LLM is slow, rate-limited, or flaky under load.
 func classify(c *gofr.Context, query string) string {
 	resp, err := c.LLM().Generate(c, "You are a router for a multi-agent system. Classify the user "+
 		"request into exactly one word:\n"+
@@ -114,7 +116,7 @@ func classify(c *gofr.Context, query string) string {
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
-		return "data"
+		return keywordRoute(query)
 	}
 
 	switch w := strings.ToLower(strings.TrimSpace(resp.Content)); {
@@ -124,9 +126,38 @@ func classify(c *gofr.Context, query string) string {
 		return "kb"
 	case strings.Contains(w, "review"):
 		return "review"
+	case strings.Contains(w, "data"):
+		return "data"
+	default:
+		return keywordRoute(query)
+	}
+}
+
+// keywordRoute is the deterministic fallback: a cheap heuristic used only when the model
+// errors or returns something unexpected, instead of silently dumping everything on "data".
+func keywordRoute(query string) string {
+	q := strings.ToLower(query)
+
+	switch {
+	case containsAny(q, "diff", "patch", "pull request", "code review", "changeset"):
+		return "review"
+	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
+		return "kb"
+	case containsAny(q, "crash", "error", "bug", "outage", "panic", "ticket", "not working"):
+		return "support"
 	default:
 		return "data"
 	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func envOr(key, def string) string {
