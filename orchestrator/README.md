@@ -1,7 +1,7 @@
 # orchestrator
 
 The multi-agent **front door**. It receives a user query, uses an LLM to route it to the right
-specialist (`data` / `support` / `kb` / `review`), and calls that agent over a **resilient GoFr HTTP
+specialist (`data` / `support` / `kb` / `review` / `redact`), and calls that agent over a **resilient GoFr HTTP
 service** — circuit breaker + retry + rate limiter + health check — all from config, no handler
 plumbing.
 
@@ -66,7 +66,11 @@ curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
 # routed to code-review-agent
 curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
   -d '{"query":"--- a/user.go\n+++ b/user.go\n@@ -1,3 +1,3 @@\n-old\n+new"}'
+
+# routed to pii-redaction-agent
+curl -s localhost:8080/assistant -H 'X-Api-Key: agents-demo-key' \
+  -d '{"query":"please redact this text: contact John Doe at john.doe@example.com"}'
 ```
 
 Point the specialists elsewhere with `DATA_AGENT_URL` / `SUPPORT_AGENT_URL` / `KB_AGENT_URL` /
-`CODE_REVIEW_AGENT_URL`.
+`CODE_REVIEW_AGENT_URL` / `PII_REDACTION_AGENT_URL`.
