@@ -11,13 +11,13 @@ auth, rate-limiting and resilience for free.
 - **support-agent** — ticket triage + SSE streaming
 - **kb-agent** — retrieval-augmented (RAG) helpdesk
 - **code-review-agent** — review a diff and comment inline
+- **pii-redaction-agent** — detect and redact PII, structured entities + risk score
 
 ## Planned agents
 
 - [ ] **research-agent** — multi-source web research with citations
 - [ ] **sql-agent** — natural language → SQL over a datasource
 - [ ] **summarizer-agent** — long-document / thread summarization
-- [ ] **pii-redaction-agent** — compliance / redaction
 - [ ] **scheduler-agent** — plans and fires tasks
 
 ## Toward a product
@@ -31,6 +31,13 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-23** — added **pii-redaction-agent**: LLM-detected PII entities (name, email, phone, SSN,
+  credit card, address, DOB, IP) redacted deterministically in Go, plus a streamed compliance
+  rationale; wired into the orchestrator's new `redact` route. Compliance/redaction agents are
+  a top enterprise use case going into production now — BFSI compliance monitoring is cited
+  alongside customer service and code review as a leading 2026 deployment, and industry-specific
+  compliance stacks (BFSI, legal, healthcare) are consolidating fast ([HyScaler, "12 Enterprise AI
+  Agents Use Cases Transforming Enterprises in 2026"](https://hyscaler.com/insights/enterprise-ai-agents-use-cases/)).
 - **2026-07-22** — added **code-review-agent**: structured, file/line-anchored diff review + streamed
   prose review, wired into the orchestrator's `review` route. AI code review is one of the most
   commercially proven agent use cases right now — AI now generates 41% of code globally and GitHub

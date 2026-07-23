@@ -1,5 +1,5 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb / review), and calls
+// to route it to the right specialist agent (data / support / kb / review / redact), and calls
 // that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
 // health check, all from config. The front door itself is protected with API-key auth.
 //
@@ -25,10 +25,11 @@ func main() {
 	// Register each specialist as a resilient HTTP service. These options are GoFr
 	// features working on the agent-to-agent calls — no extra code in the handler.
 	for name, addr := range map[string]string{
-		"data-agent":        envOr("DATA_AGENT_URL", "http://localhost:8000"),
-		"support-agent":     envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
-		"kb-agent":          envOr("KB_AGENT_URL", "http://localhost:8002"),
-		"code-review-agent": envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
+		"data-agent":          envOr("DATA_AGENT_URL", "http://localhost:8000"),
+		"support-agent":       envOr("SUPPORT_AGENT_URL", "http://localhost:8001"),
+		"kb-agent":            envOr("KB_AGENT_URL", "http://localhost:8002"),
+		"code-review-agent":   envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
+		"pii-redaction-agent": envOr("PII_REDACTION_AGENT_URL", "http://localhost:8004"),
 	} {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
@@ -67,6 +68,10 @@ var routes = map[string]specialist{
 	}},
 	"review": {"code-review-agent", "review", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"title": q, "diff": q})
+		return b
+	}},
+	"redact": {"pii-redaction-agent", "redact", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"text": q})
 		return b
 	}},
 }
@@ -113,6 +118,7 @@ func classify(c *gofr.Context, query string) string {
 		"- support: bug reports, errors, crashes, outages, tickets\n"+
 		"- kb: IT/HR policy, leave, VPN, passwords, how-to questions\n"+
 		"- review: a code diff / patch / pull request to review\n"+
+		"- redact: text that may contain PII (names, emails, SSNs, cards) and needs redaction\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -126,6 +132,8 @@ func classify(c *gofr.Context, query string) string {
 		return "kb"
 	case strings.Contains(w, "review"):
 		return "review"
+	case strings.Contains(w, "redact"):
+		return "redact"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -141,6 +149,8 @@ func keywordRoute(query string) string {
 	switch {
 	case containsAny(q, "diff", "patch", "pull request", "code review", "changeset"):
 		return "review"
+	case containsAny(q, "redact", "pii", "ssn", "credit card", "personally identifiable"):
+		return "redact"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
 		return "kb"
 	case containsAny(q, "crash", "error", "bug", "outage", "panic", "ticket", "not working"):
