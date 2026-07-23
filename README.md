@@ -34,12 +34,14 @@ flowchart LR
         ORCH -->|"circuit breaker + retry"| S["🎧 support-agent<br/>triage + SSE"]
         ORCH -->|"circuit breaker + retry"| K["📚 kb-agent<br/>RAG helpdesk"]
         ORCH -->|"circuit breaker + retry"| R["🔍 code-review-agent<br/>diff review"]
+        ORCH -->|"circuit breaker + retry"| P["🛡️ pii-redaction-agent<br/>detect + redact PII"]
     end
 
     D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
     S --> LLM
     K --> LLM
     R --> LLM
+    P --> LLM
     ORCH --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
@@ -50,7 +52,7 @@ flowchart LR
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class ORCH,D,S,K,R agent;
+    class ORCH,D,S,K,R,P agent;
     class LLM core;
 ```
 
@@ -67,6 +69,7 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🎧 **[`support-agent`](support-agent)** | Triage a ticket / issue and draft a reply | `ctx.LLM().Chat` + **SSE streaming** |
 | 📚 **[`kb-agent`](kb-agent)** | Internal IT/HR helpdesk grounded in your docs (RAG) | retrieval → `ctx.LLM().Chat` + streaming |
 | 🔍 **[`code-review-agent`](code-review-agent)** | Review a diff, leave file/line-anchored comments | structured `ctx.LLM().Chat` output + streaming |
+| 🛡️ **[`pii-redaction-agent`](pii-redaction-agent)** | Detect and redact PII before text hits storage/logs | LLM-detect + deterministic Go redaction, streamed rationale |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 
@@ -81,7 +84,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent orchestrator; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent orchestrator; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -169,6 +172,7 @@ agents/
 ├── 🎧 support-agent/    ticket triage + SSE reply                              :8001
 ├── 📚 kb-agent/         RAG helpdesk over ./kb                                  :8002
 ├── 🔍 code-review-agent/ structured diff review + streamed prose review         :8003
+├── 🛡️ pii-redaction-agent/ LLM-detect + deterministic redact + streamed rationale :8004
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088
