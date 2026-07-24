@@ -73,8 +73,12 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🔍 **[`code-review-agent`](code-review-agent)** | Review a diff, leave file/line-anchored comments | structured `ctx.LLM().Chat` output + streaming |
 | 🛡️ **[`pii-redaction-agent`](pii-redaction-agent)** | Detect and redact PII before text hits storage/logs | LLM-detect + deterministic Go redaction, streamed rationale |
 | 📝 **[`summarizer-agent`](summarizer-agent)** | Summarize a long document / email / chat thread | structured `ctx.LLM().Chat` output + streaming |
+| 🧠 **[`memory-agent`](memory-agent)** | Conversational agent with real long-term memory over a **stateless** model | **`Embedder`** (`ctx.LLM("embed").Embed`) + **SurrealDB** vector recall |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
+> `memory-agent` is the one that needs a **real** model (a stateless chat model + a real embeddings
+> model) — run it against [Ollama](https://ollama.com) or OpenAI; see its [README](memory-agent). The
+> others run keyless via the shim.
 
 ---
 
@@ -161,6 +165,18 @@ LLM requests by operation, tokens/s, and per-agent memory & goroutines, straight
 
 ![Multi-agent Grafana dashboard](docs/grafana-llm.png)
 
+**Embeddings are first-class here too.** The `memory-agent`'s vector-recall embed calls ride the same
+instrumentation as chat, so one `POST /chat` trace shows the full memory turn — recall embed →
+SurrealDB lookup → chat → SurrealDB writes → the stored-fact embed — and the dashboard breaks LLM
+requests down **by operation** (`embed` beside `chat`) *and* charts the memory payoff: bounded vs
+naive context tokens per turn, and the **cumulative tokens saved** by recall (176K and climbing in
+the run below):
+
+![Memory-agent trace: embed + SurrealDB + chat](docs/jaeger-memory-trace.png)
+![Grafana: chat and embed operations](docs/grafana-memory-embed.png)
+
+<sub>The *inter-agent* panels show memory-agent → summarizer-agent calls (it compacts old turns into summaries once a session outgrows the window).</sub>
+
 See [`observability/`](observability) to run it yourself. Prompt/response text is kept **off** metrics
 and logs by design.
 
@@ -177,6 +193,7 @@ agents/
 ├── 🔍 code-review-agent/ structured diff review + streamed prose review         :8003
 ├── 🛡️ pii-redaction-agent/ LLM-detect + deterministic redact + streamed rationale :8004
 ├── 📝 summarizer-agent/ structured breakdown + streamed narrative summary          :8005
+├── 🧠 memory-agent/     stateless model + SurrealDB vector memory (Embedder)      :8006
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088

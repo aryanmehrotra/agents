@@ -11,3 +11,4 @@ scrape_configs:
           - "host.docker.internal:2124"  # orchestrator
           - "host.docker.internal:2125"  # code-review-agent
           - "host.docker.internal:2126"  # pii-redaction-agent
+          - "host.docker.internal:2128"  # memory-agent
