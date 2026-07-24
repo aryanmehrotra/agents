@@ -30,6 +30,7 @@ func main() {
 		"kb-agent":            envOr("KB_AGENT_URL", "http://localhost:8002"),
 		"code-review-agent":   envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
 		"pii-redaction-agent": envOr("PII_REDACTION_AGENT_URL", "http://localhost:8004"),
+		"summarizer-agent":    envOr("SUMMARIZER_AGENT_URL", "http://localhost:8005"),
 	} {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
@@ -71,6 +72,10 @@ var routes = map[string]specialist{
 		return b
 	}},
 	"redact": {"pii-redaction-agent", "redact", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"text": q})
+		return b
+	}},
+	"summarize": {"summarizer-agent", "summarize", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"text": q})
 		return b
 	}},
@@ -119,6 +124,7 @@ func classify(c *gofr.Context, query string) string {
 		"- kb: IT/HR policy, leave, VPN, passwords, how-to questions\n"+
 		"- review: a code diff / patch / pull request to review\n"+
 		"- redact: text that may contain PII (names, emails, SSNs, cards) and needs redaction\n"+
+		"- summarize: a long document, email thread or chat transcript that needs summarizing\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -134,6 +140,8 @@ func classify(c *gofr.Context, query string) string {
 		return "review"
 	case strings.Contains(w, "redact"):
 		return "redact"
+	case strings.Contains(w, "summarize"):
+		return "summarize"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -151,6 +159,8 @@ func keywordRoute(query string) string {
 		return "review"
 	case containsAny(q, "redact", "pii", "ssn", "credit card", "personally identifiable"):
 		return "redact"
+	case containsAny(q, "summarize", "summary", "tl;dr", "tldr", "thread", "long document"):
+		return "summarize"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
 		return "kb"
 	case containsAny(q, "crash", "error", "bug", "outage", "panic", "ticket", "not working"):
