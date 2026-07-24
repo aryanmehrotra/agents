@@ -12,12 +12,12 @@ auth, rate-limiting and resilience for free.
 - **kb-agent** — retrieval-augmented (RAG) helpdesk
 - **code-review-agent** — review a diff and comment inline
 - **pii-redaction-agent** — detect and redact PII, structured entities + risk score
+- **summarizer-agent** — long-document / thread summarization, structured + streamed
 
 ## Planned agents
 
 - [ ] **research-agent** — multi-source web research with citations
 - [ ] **sql-agent** — natural language → SQL over a datasource
-- [ ] **summarizer-agent** — long-document / thread summarization
 - [ ] **scheduler-agent** — plans and fires tasks
 
 ## Toward a product
@@ -31,6 +31,13 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-24** — added **summarizer-agent**: structured breakdown (tl;dr, key points, action
+  items, decisions, open questions) plus a streamed narrative summary, wired into the
+  orchestrator's new `summarize` route. Summarization keeps showing up as one of the most
+  common tightly-scoped sub-agent responsibilities behind a supervisor/router layer, alongside
+  retrieval and classification, as teams move from single do-everything agents to composed
+  specialist agents in production ([MLflow, "Building Production-Ready AI Agents in
+  2026"](https://mlflow.org/articles/building-production-ready-ai-agents-in-2026/)).
 - **2026-07-23** — added **pii-redaction-agent**: LLM-detected PII entities (name, email, phone, SSN,
   credit card, address, DOB, IP) redacted deterministically in Go, plus a streamed compliance
   rationale; wired into the orchestrator's new `redact` route. Compliance/redaction agents are
