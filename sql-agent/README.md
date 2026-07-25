@@ -72,3 +72,14 @@ curl -s localhost:8007/query -H 'Content-Type: application/json' -d \
 
 The seed dataset and schema live in `main.go` (`schemaSQL` + `seedDB`) — point `DB_DIALECT`/`DB_HOST`
 at a real MySQL/Postgres instance to run this over your own tables instead.
+
+## Observability
+
+Routed through the orchestrator, one request is a single distributed trace across both services —
+the orchestrator's routing `llm.generate`, the inter-agent call, and sql-agent's own `llm.generate`
+plus the real `sql.conn.query` / `sql.rows` execution spans:
+
+![orchestrator → sql-agent trace](docs/trace.png)
+
+Metrics are scraped on `:2129`; the LLM calls show up under `app_llm_request_count` like every other
+agent, with no extra code.

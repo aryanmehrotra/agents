@@ -161,12 +161,17 @@ func narrate(c *gofr.Context, question string, rows []map[string]any) string {
 	return strings.TrimSpace(resp.Content)
 }
 
-// cleanSQL strips markdown code fences models sometimes wrap SQL in, despite being told not to.
+// cleanSQL strips markdown code fences models sometimes wrap SQL in, despite being told not to, and
+// a single trailing statement terminator. Dropping the terminator matters: isSafeSelect ignores it
+// when validating, but withLimit would otherwise append " LIMIT n" after the ';' and produce invalid
+// SQL. A genuine multi-statement (an internal ';') is still rejected by isSafeSelect.
 func cleanSQL(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "```sql")
 	s = strings.TrimPrefix(s, "```")
 	s = strings.TrimSuffix(s, "```")
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, ";")
 
 	return strings.TrimSpace(s)
 }
