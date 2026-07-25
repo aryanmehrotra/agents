@@ -1,5 +1,5 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb / review / redact), and calls
+// to route it to the right specialist agent (data / support / kb / review / redact / sql), and calls
 // that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
 // health check, all from config. The front door itself is protected with API-key auth.
 //
@@ -31,6 +31,7 @@ func main() {
 		"code-review-agent":   envOr("CODE_REVIEW_AGENT_URL", "http://localhost:8003"),
 		"pii-redaction-agent": envOr("PII_REDACTION_AGENT_URL", "http://localhost:8004"),
 		"summarizer-agent":    envOr("SUMMARIZER_AGENT_URL", "http://localhost:8005"),
+		"sql-agent":           envOr("SQL_AGENT_URL", "http://localhost:8007"),
 	} {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
@@ -79,6 +80,10 @@ var routes = map[string]specialist{
 		b, _ := json.Marshal(map[string]string{"text": q})
 		return b
 	}},
+	"sql": {"sql-agent", "query", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
 }
 
 func assistant(c *gofr.Context) (any, error) {
@@ -125,6 +130,8 @@ func classify(c *gofr.Context, query string) string {
 		"- review: a code diff / patch / pull request to review\n"+
 		"- redact: text that may contain PII (names, emails, SSNs, cards) and needs redaction\n"+
 		"- summarize: a long document, email thread or chat transcript that needs summarizing\n"+
+		"- sql: a question about structured data (sales, headcount, deals, revenue by rep/dept) that "+
+		"needs answering by querying a database\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -142,6 +149,8 @@ func classify(c *gofr.Context, query string) string {
 		return "redact"
 	case strings.Contains(w, "summarize"):
 		return "summarize"
+	case strings.Contains(w, "sql"):
+		return "sql"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -161,6 +170,8 @@ func keywordRoute(query string) string {
 		return "redact"
 	case containsAny(q, "summarize", "summary", "tl;dr", "tldr", "thread", "long document"):
 		return "summarize"
+	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
+		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
 		return "kb"
 	case containsAny(q, "crash", "error", "bug", "outage", "panic", "ticket", "not working"):
