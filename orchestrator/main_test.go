@@ -7,18 +7,20 @@ import "testing"
 func TestKeywordRoute(t *testing.T) {
 	cases := map[string]string{
 		"please review this git diff for bugs":       "review",
-		"look at this patch and suggest changes":      "review",
-		"open a pull request for review":              "review",
-		"inspect this changeset":                      "review",
-		"how do I reset my VPN password":              "kb",
-		"what is the leave policy":                    "kb",
-		"how to configure the vpn":                    "kb",
-		"the app crashes with a panic on startup":     "support",
-		"login returns a 500 error, service outage":   "support",
-		"there is a bug and it is not working":        "support",
-		"what is our total shipped revenue":           "data",
-		"list all products in inventory":              "data",
-		"how many orders are pending":                 "data",
+		"look at this patch and suggest changes":     "review",
+		"open a pull request for review":             "review",
+		"inspect this changeset":                     "review",
+		"how do I reset my VPN password":             "kb",
+		"what is the leave policy":                   "kb",
+		"how to configure the vpn":                   "kb",
+		"the app crashes with a panic on startup":    "support",
+		"login returns a 500 error, service outage":  "support",
+		"there is a bug and it is not working":       "support",
+		"what is our total shipped revenue":          "data",
+		"list all products in inventory":             "data",
+		"how many orders are pending":                "data",
+		"run a sql query against the sales database": "sql",
+		"which sales rep has the biggest pipeline":   "sql",
 	}
 
 	for query, want := range cases {

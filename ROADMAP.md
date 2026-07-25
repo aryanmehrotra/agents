@@ -13,11 +13,12 @@ auth, rate-limiting and resilience for free.
 - **code-review-agent** — review a diff and comment inline
 - **pii-redaction-agent** — detect and redact PII, structured entities + risk score
 - **summarizer-agent** — long-document / thread summarization, structured + streamed
+- **memory-agent** — conversational agent with real long-term memory (stateless model + SurrealDB vector recall)
+- **sql-agent** — natural language → SQL over a datasource, with a read-only guardrail on generated queries
 
 ## Planned agents
 
 - [ ] **research-agent** — multi-source web research with citations
-- [ ] **sql-agent** — natural language → SQL over a datasource
 - [ ] **scheduler-agent** — plans and fires tasks
 
 ## Toward a product
@@ -31,6 +32,20 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-25** — added **sql-agent**: natural-language question → LLM-generated SQL → executed
+  against a zero-config `c.SQL` datasource (SQLite locally; swap `DB_DIALECT` for a real warehouse),
+  answered grounded in the actual result rows — with a read-only-SELECT guardrail in front of
+  execution, since the generated SQL runs directly against the database. Wired into the
+  orchestrator's new `sql` route. Text-to-SQL / natural-language database querying is one of the
+  clearest production "BI agent" patterns right now — translating natural language into SQL,
+  executing it, and returning results to reduce manual query writing, alongside dashboard
+  generation and ad-hoc data exploration ([ema.co, "Building AI Agents for Databases with SQL and
+  Natural Language"](https://www.ema.co/additional-blogs/addition-blogs/building-ai-agents-sql-natural-language)).
+- **2026-07-24** — added **memory-agent**: a conversational agent with real long-term memory over a
+  **stateless** chat model — working memory (recent turns) plus long-term recall by vector similarity
+  in SurrealDB via GoFr's `Embedder` capability, with old turns compacted through the
+  summarizer-agent once a session grows. (Recorded here for completeness — it shipped same-day as
+  summarizer-agent below but was missed in this changelog at the time.)
 - **2026-07-24** — added **summarizer-agent**: structured breakdown (tl;dr, key points, action
   items, decisions, open questions) plus a streamed narrative summary, wired into the
   orchestrator's new `summarize` route. Summarization keeps showing up as one of the most

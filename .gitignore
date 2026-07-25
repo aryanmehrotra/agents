@@ -16,3 +16,6 @@ bin/
 /*/*-agent
 orchestrator/orchestrator
 localtest/*/claude-openai-shim
+
+# sql-agent's seeded SQLite file, created at runtime
+sql-agent/*.db
