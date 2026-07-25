@@ -133,10 +133,16 @@ func assistant(c *gofr.Context) (any, error) {
 	}, nil
 }
 
-// classify asks the LLM which specialist should handle the query, and falls back to a
-// deterministic keyword route when the model is unavailable or answers unexpectedly — so
-// routing stays correct even when the LLM is slow, rate-limited, or flaky under load.
+// classify picks the specialist for a query. A clear keyword signal is more reliable than a small
+// classifier model, so it is taken directly; the LLM is consulted only for genuinely ambiguous
+// queries (those with no strong keyword), and a keyword route is still the fallback if the model is
+// unavailable or answers unexpectedly. This keeps a flaky model from misrouting an obvious request
+// to the wrong — possibly unavailable — specialist.
 func classify(c *gofr.Context, query string) string {
+	if kw := keywordRoute(query); kw != "data" { // non-default = a confident keyword match
+		return kw
+	}
+
 	resp, err := c.LLM().Generate(c, "You are a router for a multi-agent system. Classify the user "+
 		"request into exactly one word:\n"+
 		"- data: products, orders, inventory, revenue, stats\n"+
