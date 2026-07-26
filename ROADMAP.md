@@ -15,10 +15,10 @@ auth, rate-limiting and resilience for free.
 - **summarizer-agent** — long-document / thread summarization, structured + streamed
 - **memory-agent** — conversational agent with real long-term memory (stateless model + SurrealDB vector recall)
 - **sql-agent** — natural language → SQL over a datasource, with a read-only guardrail on generated queries
+- **research-agent** — multi-source web research with citations, SSRF-guarded outbound fetch
 
 ## Planned agents
 
-- [ ] **research-agent** — multi-source web research with citations
 - [ ] **scheduler-agent** — plans and fires tasks
 
 ## Toward a product
@@ -32,6 +32,20 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-26** — added **research-agent**: multi-source web research grounded in real, fetched
+  page content, with inline `[n]` citations back to a numbered source list — the same
+  citation-first, multi-source answer pattern behind Perplexity and ChatGPT Deep Research, one of
+  the most visible AI-agent categories going into production this year, with enterprise agents
+  increasingly used as research assistants that compile reports from external sources
+  ([Forbes, "5 Amazing AI Agent Use Cases That Will Transform Any Business In
+  2026"](https://www.forbes.com/sites/bernardmarr/2025/11/25/5-amazing-ai-agent-use-cases-that-will-transform-any-business-in-2026/);
+  [EasyClaw, "Best AI Research Agents in
+  2026"](https://easyclaw.com/blog/top-lists/best-ai-research-agents/)). Because the URLs it fetches
+  come from untrusted, user-supplied text, every URL is checked by a deterministic Go guardrail
+  before any outbound request — blocking non-http(s) schemes, embedded credentials, and
+  localhost/internal/metadata/private/loopback/link-local hosts (the classic `169.254.169.254`
+  cloud-metadata SSRF target) — re-checked on every redirect hop. Wired into the orchestrator's new
+  `research` route, with a keyword fallback that catches any query containing a link.
 - **2026-07-25** — added **sql-agent**: natural-language question → LLM-generated SQL → executed
   against a zero-config `c.SQL` datasource (SQLite locally; swap `DB_DIALECT` for a real warehouse),
   answered grounded in the actual result rows — with a read-only-SELECT guardrail in front of
