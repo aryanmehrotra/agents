@@ -171,7 +171,9 @@ func synthesize(c *gofr.Context, question string, sources []sourceResult) string
 	return strings.TrimSpace(resp.Content)
 }
 
-var urlRe = regexp.MustCompile(`https?://[^\s<>"')]+`)
+// Allow ')' inside the match (Wikipedia-style paths contain it); extractURLs then strips only an
+// unbalanced trailing ')'. Still stop at whitespace, angle brackets and quotes.
+var urlRe = regexp.MustCompile(`https?://[^\s<>"']+`)
 
 // extractURLs pulls every distinct https?:// link out of free-form text, trimming trailing
 // punctuation a sentence might leave attached (e.g. "...see https://example.com.").
@@ -182,7 +184,14 @@ func extractURLs(text string) []string {
 	seen := make(map[string]bool, len(matches))
 
 	for _, m := range matches {
-		m = strings.TrimRight(m, ".,;:!?)")
+		// Trim trailing sentence punctuation, but keep a ')' that balances a '(' inside the URL —
+		// e.g. Wikipedia's .../Go_(programming_language) — stripping only an unbalanced closing paren,
+		// as in "(see https://example.com)".
+		m = strings.TrimRight(m, ".,;:!?")
+		for strings.HasSuffix(m, ")") && strings.Count(m, ")") > strings.Count(m, "(") {
+			m = strings.TrimRight(m[:len(m)-1], ".,;:!?")
+		}
+
 		if m != "" && !seen[m] {
 			seen[m] = true
 			out = append(out, m)

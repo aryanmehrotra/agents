@@ -85,3 +85,20 @@ func TestStripHTML(t *testing.T) {
 		t.Errorf("stripHTML() dropped real text: %q", got)
 	}
 }
+
+// TestExtractURLsBalancedParens: a ')' that closes a '(' inside the URL must be kept
+// (Wikipedia-style), while an unbalanced wrapping ')' is still stripped.
+func TestExtractURLsBalancedParens(t *testing.T) {
+	cases := map[string]string{
+		"See https://en.wikipedia.org/wiki/Go_(programming_language).":  "https://en.wikipedia.org/wiki/Go_(programming_language)",
+		"(https://en.wikipedia.org/wiki/Python_(programming_language))": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+		"wrap (https://example.com)":                                   "https://example.com",
+	}
+
+	for text, want := range cases {
+		got := extractURLs(text)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("extractURLs(%q) = %v, want [%q]", text, got, want)
+		}
+	}
+}
