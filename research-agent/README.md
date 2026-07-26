@@ -11,6 +11,8 @@ through a deterministic guardrail in Go *before* any outbound request is made â€
 behavior. The same check runs again on every redirect hop, so a safe-looking URL can't bounce the
 fetch into an internal address afterwards.
 
+![A real research session â€” a cited answer, and the guardrail refusing SSRF attempts](docs/research-demo.png)
+
 ## How it works
 
 ```mermaid
