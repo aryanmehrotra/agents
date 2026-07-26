@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"gofr.dev/pkg/gofr"
 	"gofr.dev/pkg/gofr/ai"
 )
@@ -37,6 +39,10 @@ const (
 
 var httpClient = &http.Client{
 	Timeout: fetchTimeout,
+	// Ride GoFr's OpenTelemetry stack: otelhttp makes every source fetch (and each redirect hop) a
+	// span in the same trace as the /research request, exported by GoFr's configured tracer. The SSRF
+	// guardrail stays on CheckRedirect below — the transport only observes, it does not change routing.
+	Transport: otelhttp.NewTransport(http.DefaultTransport),
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("stopped after 5 redirects")
