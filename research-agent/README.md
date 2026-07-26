@@ -86,7 +86,12 @@ unit tests plus tests for the pure URL-extraction and HTML-stripping logic.
 
 ## Observability
 
-Routed through the orchestrator, one `/assistant` request that includes links is a single distributed
-trace across both services — the orchestrator's routing `llm.generate` plus research-agent's own
-`llm.chat` synthesis call. Metrics are scraped on `:2130`, alongside every other agent's
+Every source fetch is a span too: the fetch client rides GoFr's OpenTelemetry stack (`otelhttp`), so
+one `/research` request is a single trace — `POST /research` → an `HTTP GET` per source → the
+`llm.chat` synthesis:
+
+![One /research request as a trace: source fetches then synthesis](docs/trace.png)
+
+Routed through the orchestrator it's a distributed trace across both services (the orchestrator's
+routing `llm.generate` too). Metrics are scraped on `:2130`, alongside every other agent's
 `app_llm_request_count`.
