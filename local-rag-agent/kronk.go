@@ -15,6 +15,8 @@ import (
 	"github.com/ardanlabs/kronk/sdk/kronk/model"
 	"github.com/ardanlabs/kronk/sdk/tools/libs"
 	"github.com/ardanlabs/kronk/sdk/tools/models"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"gofr.dev/pkg/gofr/ai"
 	"gofr.dev/pkg/gofr/datasource"
@@ -181,17 +183,37 @@ func (m *chatModel) Chat(ctx context.Context, messages []ai.Message, opts ...ai.
 		defer cancel()
 	}
 
-	resp, err := m.krn.Chat(ctx, d)
+	// Generate inside an explicit span and read the usage/content within it, so the actual token
+	// generation (the bulk of a chat call) is attributed to the trace rather than left as an
+	// unexplained gap. Kronk materializes the response lazily, so touching it here matters.
+	genCtx, span := otel.Tracer("local-rag-agent").Start(ctx, "kronk.generate")
+
+	resp, err := m.krn.Chat(genCtx, d)
 	if err != nil {
+		span.RecordError(err)
+		span.End()
+
 		return nil, err
 	}
 
 	if len(resp.Choices) == 0 || resp.Choices[0].Message == nil {
+		span.End()
 		return nil, fmt.Errorf("kronk: model returned no message")
 	}
 
+	content := strings.TrimSpace(resp.Choices[0].Message.Content) // force materialization in-span
+
+	if resp.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("gen.completion_tokens", resp.Usage.CompletionTokens),
+			attribute.Float64("gen.tokens_per_sec", resp.Usage.TokensPerSecond),
+		)
+	}
+
+	span.End()
+
 	out := &ai.Response{
-		Content: strings.TrimSpace(resp.Choices[0].Message.Content),
+		Content: content,
 		Model:   m.modelID,
 	}
 
@@ -219,9 +241,16 @@ func (m *chatModel) HealthCheck(_ context.Context) datasource.Health {
 	}
 }
 
-// embedText turns text into a vector using the in-process embedding model. Kronk requires a context
-// deadline, so one is added if absent.
+// embedText turns text into a vector using the in-process embedding model. It opens a "kronk.embed"
+// span so the local embedding step shows up in the request's trace — otherwise the biggest slice of
+// an /ask (embedding the question) would be invisible, since embeddings don't go through ctx.LLM().
+// Kronk requires a context deadline, so one is added if absent.
 func embedText(ctx context.Context, krn *kronk.Kronk, timeout time.Duration, text string) ([]float32, error) {
+	ctx, span := otel.Tracer("local-rag-agent").Start(ctx, "kronk.embed")
+	defer span.End()
+
+	span.SetAttributes(attribute.Int("embed.input_chars", len(text)))
+
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 
@@ -231,12 +260,18 @@ func embedText(ctx context.Context, krn *kronk.Kronk, timeout time.Duration, tex
 
 	resp, err := krn.Embeddings(ctx, model.D{"input": text})
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 
 	if len(resp.Data) == 0 || len(resp.Data[0].Embedding) == 0 {
-		return nil, fmt.Errorf("kronk: no embedding returned")
+		err = fmt.Errorf("kronk: no embedding returned")
+		span.RecordError(err)
+
+		return nil, err
 	}
+
+	span.SetAttributes(attribute.Int("embed.dimensions", len(resp.Data[0].Embedding)))
 
 	return resp.Data[0].Embedding, nil
 }
