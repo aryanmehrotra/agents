@@ -39,6 +39,7 @@ flowchart LR
         ORCH -->|"circuit breaker + retry"| Q["🗄️ sql-agent<br/>NL → SQL, guardrailed"]
         ORCH -->|"circuit breaker + retry"| W["🔍 research-agent<br/>multi-source, cited, SSRF-guarded"]
         ORCH -->|"circuit breaker + retry"| X["🧩 extraction-agent<br/>text → typed JSON, schema-validated"]
+        ORCH -->|"circuit breaker + retry"| L["🦙 local-rag-agent<br/>on-device RAG (llama.cpp)"]
     end
 
     D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
@@ -50,6 +51,7 @@ flowchart LR
     Q --> LLM
     W --> LLM
     X --> LLM
+    L --> LLM
     ORCH --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
@@ -61,6 +63,7 @@ flowchart LR
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
     class ORCH,D,S,K,R,P,U,Q,W,X agent;
+    class ORCH,D,S,K,R,P,U,Q,W,L agent;
     class LLM core;
 ```
 
@@ -83,11 +86,13 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🗄️ **[`sql-agent`](sql-agent)** | Ask a database in natural language; SQL runs for real, guardrailed | zero-config **`c.SQL`** datasource + LLM-generated, read-only-checked SQL |
 | 🔍 **[`research-agent`](research-agent)** | Multi-source web research with inline `[n]` citations | real outbound fetch + SSRF-guarded URL allowlist logic, `ctx.LLM().Chat` synthesis |
 | 🧩 **[`extraction-agent`](extraction-agent)** | Turn unstructured text into structured, typed JSON against a declared schema | `ctx.LLM().Chat` + deterministic Go schema/type validation of the model's output |
+| 🦙 **[`local-rag-agent`](local-rag-agent)** | 100% on-device RAG — ingest, embed, retrieve and answer with citations, nothing leaves the machine | **custom `ai.Model`** (`app.AddLLM`) over **llama.cpp in-process (Kronk)** + **SurrealDB** vectors |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
-> `memory-agent` is the one that needs a **real** model (a stateless chat model + a real embeddings
-> model) — run it against [Ollama](https://ollama.com) or OpenAI; see its [README](memory-agent). The
-> others run keyless via the shim.
+> Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
+> a real embeddings model — [Ollama](https://ollama.com) or OpenAI), and `local-rag-agent` runs its
+> models **on-device on llama.cpp** and needs a SurrealDB — both fully local, see their READMEs. The
+> rest run keyless via the shim.
 
 ---
 
@@ -206,6 +211,7 @@ agents/
 ├── 🗄️ sql-agent/        NL → SQL over a zero-config datasource, guardrailed        :8007
 ├── 🔍 research-agent/   multi-source web research, cited, SSRF-guarded fetch          :8008
 ├── 🧩 extraction-agent/ unstructured text → typed JSON, schema-validated in Go        :8009
+├── 🦙 local-rag-agent/  on-device RAG — llama.cpp (Kronk) + SurrealDB, all local       :8010
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088

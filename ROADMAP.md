@@ -17,6 +17,7 @@ auth, rate-limiting and resilience for free.
 - **sql-agent** — natural language → SQL over a datasource, with a read-only guardrail on generated queries
 - **research-agent** — multi-source web research with citations, SSRF-guarded outbound fetch
 - **extraction-agent** — unstructured text → structured, typed JSON against a caller-declared schema, validated deterministically in Go
+- **local-rag-agent** — 100% on-device RAG: llama.cpp in-process (Kronk) for embeddings + chat, SurrealDB vectors, exposed through GoFr as a custom `ai.Model`
 
 ## Planned agents
 
@@ -46,6 +47,20 @@ auth, rate-limiting and resilience for free.
   don't match their declared type rejected, required-but-unresolved fields reported missing) so the
   caller gets typed data it can rely on, never the model's raw guess. Wired into the orchestrator's
   new `extract` route, with a keyword fallback for parse/extract/structured queries.
+- **2026-07-27** — added **local-rag-agent**: a fully on-device retrieval-augmented-generation agent.
+  Both the embedding model and the chat model run **in-process on llama.cpp** via
+  [Kronk](https://github.com/ardanlabs/kronk) (GGUF, no daemon, no HTTP, no API key), and document
+  vectors are stored in SurrealDB — used as a vector database through GoFr's datasource. Ingested
+  text is chunked, embedded and stored; a question is embedded, matched by cosine similarity, and
+  answered by the local model grounded only in the retrieved passages, with `[n]` citations. The
+  novelty is on the GoFr side: the local engine is exposed as a **custom `ai.Model`** (registered
+  with `app.AddLLM`), so `ctx.LLM()` drives on-device inference while GoFr still supplies tracing,
+  token metrics (`app_llm_request_count{provider="kronk"}`) and a health check — the same
+  batteries every hosted-provider agent here gets, over an engine that isn't an HTTP API at all.
+  Local/private inference is a fast-growing production requirement where data residency, cost or
+  air-gapping rule out hosted APIs. Config-driven and generic: point `CHAT_MODEL` / `EMBED_MODEL` at
+  any GGUF Kronk can resolve (see the agent README's "Customising" section). Wired into the
+  orchestrator's new `localdocs` route.
 - **2026-07-26** — added **research-agent**: multi-source web research grounded in real, fetched
   page content, with inline `[n]` citations back to a numbered source list — the same
   citation-first, multi-source answer pattern behind Perplexity and ChatGPT Deep Research, one of
