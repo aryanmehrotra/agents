@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb / review / redact / sql), and calls
-// that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
+// to route it to the right specialist agent (data / support / kb / review / redact / sql / research),
+// and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
 // health check, all from config. The front door itself is protected with API-key auth.
 //
 // Because both the orchestrator and the specialist export traces, one /assistant call
@@ -32,11 +32,14 @@ func main() {
 		"pii-redaction-agent": envOr("PII_REDACTION_AGENT_URL", "http://localhost:8004"),
 		"summarizer-agent":    envOr("SUMMARIZER_AGENT_URL", "http://localhost:8005"),
 		"sql-agent":           envOr("SQL_AGENT_URL", "http://localhost:8007"),
+		"research-agent":      envOr("RESEARCH_AGENT_URL", "http://localhost:8008"),
 	} {
+		// No custom HealthConfig: GoFr already serves liveness at /.well-known/alive and the
+		// circuit breaker probes that by default. A custom HealthEndpoint here would 404 against
+		// the swagger catchall and silently break the breaker's health signal for every agent.
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
 			&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
-			&service.HealthConfig{HealthEndpoint: ".well-known/health-check"},
 		)
 	}
 
@@ -82,6 +85,10 @@ var routes = map[string]specialist{
 	}},
 	"sql": {"sql-agent", "query", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
+	"research": {"research-agent", "research", func(q string) []byte {
+		b, _ := json.Marshal(map[string]any{"question": q, "sources": []string{}})
 		return b
 	}},
 }
@@ -132,6 +139,7 @@ func classify(c *gofr.Context, query string) string {
 		"- summarize: a long document, email thread or chat transcript that needs summarizing\n"+
 		"- sql: a question about structured data (sales, headcount, deals, revenue by rep/dept) that "+
 		"needs answering by querying a database\n"+
+		"- research: a question that needs answering by reading and citing external web sources/links\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -149,6 +157,8 @@ func classify(c *gofr.Context, query string) string {
 		return "redact"
 	case strings.Contains(w, "summarize"):
 		return "summarize"
+	case strings.Contains(w, "research"):
+		return "research"
 	case strings.Contains(w, "sql"):
 		return "sql"
 	case strings.Contains(w, "data"):
@@ -170,6 +180,8 @@ func keywordRoute(query string) string {
 		return "redact"
 	case containsAny(q, "summarize", "summary", "tl;dr", "tldr", "thread", "long document"):
 		return "summarize"
+	case containsAny(q, "research", "cite", "citation", "sources", "look up", "web search", "articles about"):
+		return "research"
 	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
 		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):

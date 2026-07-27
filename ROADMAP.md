@@ -15,10 +15,10 @@ auth, rate-limiting and resilience for free.
 - **summarizer-agent** — long-document / thread summarization, structured + streamed
 - **memory-agent** — conversational agent with real long-term memory (stateless model + SurrealDB vector recall)
 - **sql-agent** — natural language → SQL over a datasource, with a read-only guardrail on generated queries
+- **research-agent** — multi-source web research with citations, with an SSRF guardrail on fetched URLs
 
 ## Planned agents
 
-- [ ] **research-agent** — multi-source web research with citations
 - [ ] **scheduler-agent** — plans and fires tasks
 
 ## Toward a product
@@ -32,6 +32,16 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-27** — added **research-agent**: answers a question by fetching caller-supplied
+  source URLs and grounding an LLM's answer in the fetched content, with inline citations back
+  to each numbered source. Every fetch target is put through a deterministic SSRF guardrail in
+  Go *before* any outbound request — only http/https, no embedded credentials, no localhost, no
+  cloud metadata hosts, and no address resolving to a private/loopback/link-local range — so a
+  hostile or prompt-injected URL is refused with a reason instead of fetched. Wired into the
+  orchestrator's new `research` route. Multi-source research agents that read real sources and
+  cite them, instead of answering from memory, are one of the clearest research-assistant
+  patterns going into production now ([NinjaTech AI, "AI Research Agent: Multi-Source Research
+  With Citations"](https://www.ninjatech.ai/product/ai-research-agent)).
 - **2026-07-25** — added **sql-agent**: natural-language question → LLM-generated SQL → executed
   against a zero-config `c.SQL` datasource (SQLite locally; swap `DB_DIALECT` for a real warehouse),
   answered grounded in the actual result rows — with a read-only-SELECT guardrail in front of
