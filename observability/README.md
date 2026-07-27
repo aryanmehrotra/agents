@@ -18,8 +18,7 @@ cd data-agent
 cp configs/.env.local configs/.env
 cat >> configs/.env <<'EOF'
 TRACE_EXPORTER=otlp
-TRACER_HOST=localhost
-TRACER_PORT=4317
+TRACER_URL=localhost:4317
 EOF
 go run .
 
