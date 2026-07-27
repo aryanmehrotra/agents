@@ -9,6 +9,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -36,8 +38,10 @@ func main() {
 		app.AddHTTPService(name, addr,
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
 			&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
-			&service.HealthConfig{HealthEndpoint: ".well-known/health-check"},
 		)
+		// No HealthConfig: GoFr's circuit breaker already probes the liveness path it serves
+		// (/.well-known/alive) by default. Overriding it with a path GoFr doesn't serve (e.g.
+		// .well-known/health-check) 404s every probe and silently disables the breaker's health signal.
 	}
 
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
@@ -102,7 +106,18 @@ func assistant(c *gofr.Context) (any, error) {
 	// propagates automatically, so this call is a child span in the same trace.
 	resp, err := c.GetHTTPService(spec.service).Post(c, spec.path, nil, spec.body(in.Query))
 	if err != nil {
-		return nil, err
+		// Degrade gracefully: when a specialist is down or its breaker is open, return a clear
+		// message naming it instead of leaking a transport error ("dial tcp … connection refused")
+		// to the caller as a raw 500.
+		c.Logger.Errorf("orchestrator: %s unavailable for route %q: %v", spec.service, route, err)
+
+		return map[string]any{
+			"route":        route,
+			"routed_to":    spec.service,
+			"degraded":     true,
+			"circuit_open": errors.Is(err, service.ErrCircuitOpen),
+			"error":        fmt.Sprintf("the %s is temporarily unavailable — please retry shortly", spec.service),
+		}, nil
 	}
 	defer resp.Body.Close()
 
@@ -118,10 +133,16 @@ func assistant(c *gofr.Context) (any, error) {
 	}, nil
 }
 
-// classify asks the LLM which specialist should handle the query, and falls back to a
-// deterministic keyword route when the model is unavailable or answers unexpectedly — so
-// routing stays correct even when the LLM is slow, rate-limited, or flaky under load.
+// classify picks the specialist for a query. A clear keyword signal is more reliable than a small
+// classifier model, so it is taken directly; the LLM is consulted only for genuinely ambiguous
+// queries (those with no strong keyword), and a keyword route is still the fallback if the model is
+// unavailable or answers unexpectedly. This keeps a flaky model from misrouting an obvious request
+// to the wrong — possibly unavailable — specialist.
 func classify(c *gofr.Context, query string) string {
+	if kw := keywordRoute(query); kw != "data" { // non-default = a confident keyword match
+		return kw
+	}
+
 	resp, err := c.LLM().Generate(c, "You are a router for a multi-agent system. Classify the user "+
 		"request into exactly one word:\n"+
 		"- data: products, orders, inventory, revenue, stats\n"+
