@@ -60,6 +60,12 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// local-rag-agent: same defaults — the breaker probes GoFr's default /.well-known/alive.
+	app.AddHTTPService("local-rag-agent", envOr("LOCAL_RAG_AGENT_URL", "http://localhost:8010"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -110,6 +116,10 @@ var routes = map[string]specialist{
 	}},
 	"extract": {"extraction-agent", "extract", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"text": q})
+		return b
+	}},
+	"localdocs": {"local-rag-agent", "ask", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"question": q})
 		return b
 	}},
 }
@@ -181,6 +191,8 @@ func classify(c *gofr.Context, query string) string {
 		"synthesize a cited answer from\n"+
 		"- extract: turn a block of unstructured text into structured fields / JSON (parse an "+
 		"invoice, resume, contract or entities into named typed values)\n"+
+		"- localdocs: a question to be answered from the user's own privately-ingested local "+
+		"documents / notes (a fully on-device RAG knowledge base)\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -204,6 +216,8 @@ func classify(c *gofr.Context, query string) string {
 		return "research"
 	case strings.Contains(w, "extract"):
 		return "extract"
+	case strings.Contains(w, "localdocs"):
+		return "localdocs"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -227,6 +241,8 @@ func keywordRoute(query string) string {
 		return "summarize"
 	case containsAny(q, "extract", "parse", "structured", "into json", "into fields"):
 		return "extract"
+	case containsAny(q, "my documents", "my notes", "my handbook", "ingested", "local rag", "private docs"):
+		return "localdocs"
 	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
 		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
