@@ -53,6 +53,13 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// extraction-agent: same as above — no custom HealthConfig, so the breaker probes GoFr's
+	// default /.well-known/alive liveness path.
+	app.AddHTTPService("extraction-agent", envOr("EXTRACTION_AGENT_URL", "http://localhost:8009"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -99,6 +106,10 @@ var routes = map[string]specialist{
 	}},
 	"research": {"research-agent", "research", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
+	"extract": {"extraction-agent", "extract", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"text": q})
 		return b
 	}},
 }
@@ -168,6 +179,8 @@ func classify(c *gofr.Context, query string) string {
 		"needs answering by querying a database\n"+
 		"- research: a question that includes one or more https:// links to fetch, read and "+
 		"synthesize a cited answer from\n"+
+		"- extract: turn a block of unstructured text into structured fields / JSON (parse an "+
+		"invoice, resume, contract or entities into named typed values)\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -189,6 +202,8 @@ func classify(c *gofr.Context, query string) string {
 		return "sql"
 	case strings.Contains(w, "research"):
 		return "research"
+	case strings.Contains(w, "extract"):
+		return "extract"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -210,6 +225,8 @@ func keywordRoute(query string) string {
 		return "redact"
 	case containsAny(q, "summarize", "summary", "tl;dr", "tldr", "thread", "long document"):
 		return "summarize"
+	case containsAny(q, "extract", "parse", "structured", "into json", "into fields"):
+		return "extract"
 	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
 		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):

@@ -16,6 +16,7 @@ auth, rate-limiting and resilience for free.
 - **memory-agent** — conversational agent with real long-term memory (stateless model + SurrealDB vector recall)
 - **sql-agent** — natural language → SQL over a datasource, with a read-only guardrail on generated queries
 - **research-agent** — multi-source web research with citations, SSRF-guarded outbound fetch
+- **extraction-agent** — unstructured text → structured, typed JSON against a caller-declared schema, validated deterministically in Go
 
 ## Planned agents
 
@@ -32,6 +33,19 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-27** — added **extraction-agent**: turns unstructured text into structured, typed JSON
+  against a caller-declared schema (each field a name + type — `string`, `integer`, `number`,
+  `boolean`, `date`, or a `<type>[]` list). Structured extraction / "structured output" — parsing
+  invoices, resumes, contracts and entities out of free-form text into a fixed schema — is the single
+  most widely deployed LLM pattern in production today, the backbone of document processing,
+  "chat with your data" and unstructured-to-structured ETL ([K2view, "Top AI agent use cases in the
+  enterprise (2026)"](https://www.k2view.com/blog/ai-agent-use-cases/)). Because a model reliably
+  *finds* values but cannot be trusted to *shape* them — it invents keys, returns the wrong type, or
+  wraps its JSON in prose — the model only proposes: every value it returns is validated
+  deterministically in Go against the requested schema (keys not in the schema dropped, values that
+  don't match their declared type rejected, required-but-unresolved fields reported missing) so the
+  caller gets typed data it can rely on, never the model's raw guess. Wired into the orchestrator's
+  new `extract` route, with a keyword fallback for parse/extract/structured queries.
 - **2026-07-26** — added **research-agent**: multi-source web research grounded in real, fetched
   page content, with inline `[n]` citations back to a numbered source list — the same
   citation-first, multi-source answer pattern behind Perplexity and ChatGPT Deep Research, one of
