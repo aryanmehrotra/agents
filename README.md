@@ -37,6 +37,7 @@ flowchart LR
         ORCH -->|"circuit breaker + retry"| P["🛡️ pii-redaction-agent<br/>detect + redact PII"]
         ORCH -->|"circuit breaker + retry"| U["📝 summarizer-agent<br/>doc/thread summarization"]
         ORCH -->|"circuit breaker + retry"| Q["🗄️ sql-agent<br/>NL → SQL, guardrailed"]
+        ORCH -->|"circuit breaker + retry"| W["🔍 research-agent<br/>multi-source, cited, SSRF-guarded"]
     end
 
     D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
@@ -46,6 +47,7 @@ flowchart LR
     P --> LLM
     U --> LLM
     Q --> LLM
+    W --> LLM
     ORCH --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
@@ -56,7 +58,7 @@ flowchart LR
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class ORCH,D,S,K,R,P,U,Q agent;
+    class ORCH,D,S,K,R,P,U,Q,W agent;
     class LLM core;
 ```
 
@@ -77,6 +79,7 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 📝 **[`summarizer-agent`](summarizer-agent)** | Summarize a long document / email / chat thread | structured `ctx.LLM().Chat` output + streaming |
 | 🧠 **[`memory-agent`](memory-agent)** | Conversational agent with real long-term memory over a **stateless** model | **`Embedder`** (`ctx.LLM("embed").Embed`) + **SurrealDB** vector recall |
 | 🗄️ **[`sql-agent`](sql-agent)** | Ask a database in natural language; SQL runs for real, guardrailed | zero-config **`c.SQL`** datasource + LLM-generated, read-only-checked SQL |
+| 🔍 **[`research-agent`](research-agent)** | Multi-source web research with inline `[n]` citations | real outbound fetch + SSRF-guarded URL allowlist logic, `ctx.LLM().Chat` synthesis |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 > `memory-agent` is the one that needs a **real** model (a stateless chat model + a real embeddings
@@ -94,7 +97,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent orchestrator; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent orchestrator; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -198,6 +201,7 @@ agents/
 ├── 📝 summarizer-agent/ structured breakdown + streamed narrative summary          :8005
 ├── 🧠 memory-agent/     stateless model + SurrealDB vector memory (Embedder)      :8006
 ├── 🗄️ sql-agent/        NL → SQL over a zero-config datasource, guardrailed        :8007
+├── 🔍 research-agent/   multi-source web research, cited, SSRF-guarded fetch          :8008
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088

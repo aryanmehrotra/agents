@@ -21,6 +21,8 @@ func TestKeywordRoute(t *testing.T) {
 		"how many orders are pending":                "data",
 		"run a sql query against the sales database": "sql",
 		"which sales rep has the biggest pipeline":   "sql",
+		"compare https://example.com/a and https://example.com/b and cite your sources": "research",
+		"summarize http://news.example.com/article for me":                              "research",
 	}
 
 	for query, want := range cases {
