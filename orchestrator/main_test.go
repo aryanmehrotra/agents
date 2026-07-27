@@ -23,6 +23,8 @@ func TestKeywordRoute(t *testing.T) {
 		"which sales rep has the biggest pipeline":   "sql",
 		"compare https://example.com/a and https://example.com/b and cite your sources": "research",
 		"summarize http://news.example.com/article for me":                              "research",
+		"extract the invoice number and total from this text":                           "extract",
+		"parse this resume into structured fields":                                       "extract",
 	}
 
 	for query, want := range cases {
