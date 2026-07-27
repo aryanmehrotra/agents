@@ -11,25 +11,74 @@ import (
 	"time"
 
 	"github.com/ardanlabs/kronk/sdk/kronk"
+	"github.com/ardanlabs/kronk/sdk/kronk/applog"
 	"github.com/ardanlabs/kronk/sdk/kronk/model"
 	"github.com/ardanlabs/kronk/sdk/tools/libs"
 	"github.com/ardanlabs/kronk/sdk/tools/models"
 
 	"gofr.dev/pkg/gofr/ai"
 	"gofr.dev/pkg/gofr/datasource"
+	"gofr.dev/pkg/gofr/logging"
 )
+
+// kronkLogger adapts GoFr's structured logger to Kronk's logger (a func(ctx, msg, args...)), so every
+// line Kronk emits — backend install, model download/load, runtime notices — flows through GoFr's
+// logging instead of raw stdout. Chatty download-progress lines are kept at debug; everything else is
+// info. This is the same "make it a GoFr citizen" move as the custom ai.Model: one adapter, and a
+// third-party library logs in your app's format and level.
+func kronkLogger(lg logging.Logger) applog.Logger {
+	return func(_ context.Context, msg string, args ...any) {
+		msg = strings.TrimPrefix(strings.TrimSpace(msg), "\r")
+		if msg == "" {
+			return
+		}
+
+		if kv := kvPairs(args); kv != "" {
+			msg += " " + kv
+		}
+
+		line := "kronk: " + msg
+		if strings.Contains(msg, "Downloading") || strings.Contains(msg, "MB of") {
+			lg.Debug(line) // per-chunk download progress — noisy, keep it at debug
+			return
+		}
+
+		lg.Info(line)
+	}
+}
+
+// kvPairs renders Kronk's structured args (alternating key, value) as "key=value" text.
+func kvPairs(args []any) string {
+	var b strings.Builder
+
+	for i := 0; i+1 < len(args); i += 2 {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+
+		fmt.Fprintf(&b, "%v=%v", args[i], args[i+1])
+	}
+
+	if len(args)%2 == 1 {
+		fmt.Fprintf(&b, " %v", args[len(args)-1])
+	}
+
+	return b.String()
+}
 
 // bootstrapKronk installs the llama.cpp backend (once, cached) and downloads + loads the chat and
 // embedding GGUF models from their configured sources (Hugging Face refs or local paths). First run
 // downloads a few hundred MB per model; later runs load from the local cache. It is generic: point
 // CHAT_MODEL / EMBED_MODEL at any GGUF Kronk can resolve.
-func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int) (chat, embed *kronk.Kronk, err error) {
+func bootstrapKronk(ctx context.Context, lg logging.Logger, chatSrc, embedSrc string, ctxWindow int) (chat, embed *kronk.Kronk, err error) {
+	klog := kronkLogger(lg) // route all of Kronk's logging through GoFr
+
 	lib, err := libs.New()
 	if err != nil {
 		return nil, nil, fmt.Errorf("kronk libs.New: %w", err)
 	}
 
-	if _, err = lib.Download(ctx, kronk.FmtLogger); err != nil {
+	if _, err = lib.Download(ctx, klog); err != nil {
 		return nil, nil, fmt.Errorf("install llama.cpp backend: %w", err)
 	}
 
@@ -42,17 +91,17 @@ func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int
 		return nil, nil, fmt.Errorf("kronk models.New: %w", err)
 	}
 
-	cp, err := mdls.Download(ctx, kronk.FmtLogger, chatSrc)
+	cp, err := mdls.Download(ctx, klog, chatSrc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download chat model %q: %w", chatSrc, err)
 	}
 
-	ep, err := mdls.Download(ctx, kronk.FmtLogger, embedSrc)
+	ep, err := mdls.Download(ctx, klog, embedSrc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download embed model %q: %w", embedSrc, err)
 	}
 
-	chatOpts := []model.Option{model.WithModelFiles(cp.ModelFiles)}
+	chatOpts := []model.Option{model.WithModelFiles(cp.ModelFiles), model.WithLog(klog)}
 	if ctxWindow > 0 {
 		chatOpts = append(chatOpts, model.WithContextWindow(ctxWindow))
 	}
@@ -61,7 +110,7 @@ func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int
 		return nil, nil, fmt.Errorf("load chat model: %w", err)
 	}
 
-	if embed, err = kronk.New(model.WithModelFiles(ep.ModelFiles)); err != nil {
+	if embed, err = kronk.New(model.WithModelFiles(ep.ModelFiles), model.WithLog(klog)); err != nil {
 		return nil, nil, fmt.Errorf("load embed model: %w", err)
 	}
 
