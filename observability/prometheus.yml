@@ -14,3 +14,4 @@ scrape_configs:
           - "host.docker.internal:2127"  # summarizer-agent
           - "host.docker.internal:2128"  # memory-agent
           - "host.docker.internal:2129"  # sql-agent
+          - "host.docker.internal:2130"  # research-agent

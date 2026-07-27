@@ -1,7 +1,7 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
-// to route it to the right specialist agent (data / support / kb / review / redact / sql), and calls
-// that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry + rate limiter +
-// health check, all from config. The front door itself is protected with API-key auth.
+// to route it to the right specialist agent (data / support / kb / review / redact / sql /
+// research), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry +
+// rate limiter + health check, all from config. The front door itself is protected with API-key auth.
 //
 // Because both the orchestrator and the specialist export traces, one /assistant call
 // becomes a single distributed trace spanning two services.
@@ -44,6 +44,15 @@ func main() {
 		// .well-known/health-check) 404s every probe and silently disables the breaker's health signal.
 	}
 
+	// research-agent: no custom HealthConfig — GoFr already serves liveness at the default
+	// .well-known/alive and the circuit breaker probes that by default. A custom
+	// ".well-known/health-check" endpoint (as above) isn't actually served by GoFr and would
+	// silently break the breaker's health signal for a peer that never implemented it.
+	app.AddHTTPService("research-agent", envOr("RESEARCH_AGENT_URL", "http://localhost:8008"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -85,6 +94,10 @@ var routes = map[string]specialist{
 		return b
 	}},
 	"sql": {"sql-agent", "query", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
+	"research": {"research-agent", "research", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"question": q})
 		return b
 	}},
@@ -153,6 +166,8 @@ func classify(c *gofr.Context, query string) string {
 		"- summarize: a long document, email thread or chat transcript that needs summarizing\n"+
 		"- sql: a question about structured data (sales, headcount, deals, revenue by rep/dept) that "+
 		"needs answering by querying a database\n"+
+		"- research: a question that includes one or more https:// links to fetch, read and "+
+		"synthesize a cited answer from\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -172,6 +187,8 @@ func classify(c *gofr.Context, query string) string {
 		return "summarize"
 	case strings.Contains(w, "sql"):
 		return "sql"
+	case strings.Contains(w, "research"):
+		return "research"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -185,6 +202,8 @@ func keywordRoute(query string) string {
 	q := strings.ToLower(query)
 
 	switch {
+	case containsAny(q, "http://", "https://"):
+		return "research"
 	case containsAny(q, "diff", "patch", "pull request", "code review", "changeset"):
 		return "review"
 	case containsAny(q, "redact", "pii", "ssn", "credit card", "personally identifiable"):
