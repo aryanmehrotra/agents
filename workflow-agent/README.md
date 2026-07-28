@@ -5,6 +5,8 @@ which agents exist. Give it a goal; its LLM breaks it into ordered sub-tasks; it
 to the **orchestrator hub** (the same `/assistant` route that routes any query to the right
 specialist), threading each step's output into the next, and synthesises a final answer.
 
+![A real workflow session — one goal planned and dispatched across summarizer-agent then extraction-agent, then synthesised](docs/workflow-demo.png)
+
 ```
 POST /workflow {"goal": "Summarise this incident, then extract the service and severity as fields …"}
 
