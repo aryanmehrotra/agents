@@ -22,6 +22,7 @@ auth, rate-limiting and resilience for free.
 - **workflow-agent** — turns one goal into a multi-step workflow across the fleet: plans ordered sub-tasks and dispatches each through the orchestrator hub, threading outputs — composing any agents without hard-coding a single peer
 - **spec-agent** — turns a raw ticket/issue into a structured engineering spec (scope, testable acceptance criteria, risks, task breakdown), normalized deterministically in Go and gated on a real spec before it's called complete
 - **estimation-agent** — sizes a task breakdown into a point estimate with an optimistic/likely/pessimistic range (and a duration, given velocity); the model only picks relative sizes and confidence, and every number is computed in Go from a fixed size→points table — the model's own arithmetic is never trusted
+- **scaffold-agent** — generates a runnable project skeleton from a spec **in any stack** (Python, Node, Go, Rust, …); the model proposes files and Go disposes — every path is sanitized against traversal/escape, binary/non-UTF-8 files are rejected, and files it can parse (Go/JSON/YAML) are syntax-checked, all in-process (no disk writes, no repo touched)
 
 ## Planned agents — the software development lifecycle
 
@@ -36,7 +37,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [x] **estimation-agent** — size the work from that spec and the repo's own history ✅ *shipped*
 
 **Build**
-- [ ] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec and open it as a PR
+- [x] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec ✅ *shipped* (returns verified files in-process; opening a PR is a caller's choice)
 - [ ] **migration-agent** — apply a mechanical codemod across a repo in an isolated worktree, and verify it still builds
 
 **Test**
@@ -63,6 +64,20 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **scaffold-agent**: the build stage of the SDLC suite — it turns a spec into
+  a runnable project skeleton **in any language or framework** (Python/FastAPI, Node/Express, Go/GoFr,
+  Rust, … — name the stack or let the model infer it), the repetitive first hour of a new service done
+  in seconds. Generated files are only worth anything if they're safe and real, so the model only
+  *proposes* files and Go *disposes*, all language-agnostic: every path is sanitized (absolute paths,
+  `..`, anything escaping the scaffold root, and binary/executable types are rejected — a filesystem
+  analogue of the SSRF guardrail the fetch agents use) and every file must be valid UTF-8 text; then
+  the files it *can* parse are syntax-checked — Go via `go/format.Source` (returned gofmt'd), JSON via
+  `encoding/json`, YAML via `yaml.v3` — while a file in a language it can't parse is returned untouched
+  and honestly marked *unchecked*, never silently blessed. It's all in-process: no disk writes, no
+  build, no network, so the agent never touches your repo and never blocks. You get the files plus an
+  honest list of what was rejected, to write out yourself (or hand to a PR step). Wired into the
+  orchestrator's new `scaffold` route, with a keyword fallback for scaffold / skeleton / boilerplate /
+  starter-code requests.
 - **2026-07-28** — added **estimation-agent**: the second stop in the SDLC suite — it sizes a task
   breakdown (for example spec-agent's output) or a raw description into a point estimate with an
   optimistic/likely/pessimistic range, and — given a team velocity — a duration in working days. The

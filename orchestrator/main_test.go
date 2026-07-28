@@ -34,6 +34,8 @@ func TestKeywordRoute(t *testing.T) {
 		"turn this ticket into a spec with acceptance criteria":                         "spec",
 		"how many story points is the login work":                                       "estimate",
 		"give me a rough estimate to build oauth":                                       "estimate",
+		"scaffold a new orders service with a /orders endpoint":                         "scaffold",
+		"generate a module skeleton with boilerplate":                                   "scaffold",
 		// Regression: an effort word embedded in a data/sql question must NOT hijack the
 		// estimate route — the greedy bare "estimate"/"how long will" keywords are gone.
 		"what is our estimated revenue this quarter": "data",
