@@ -99,9 +99,11 @@ llama.cpp backend is installed once and reused across models.
 
 The chat model is registered with `app.AddLLM`, so every answer is a GoFr `llm.chat` span with token
 metrics, exported by the configured tracer — even though inference is a local `.gguf`, not an API
-call. Metrics are scraped on `:2132`; the local model shows up as
-`app_llm_request_count{provider="kronk", model="<your model>"}` alongside every other agent's LLM
-metrics. SurrealDB and the model both report on GoFr's health endpoint.
+call. The embedding step (which doesn't go through `ctx.LLM()`) gets its own `kronk.embed` span, so a
+`/ask` trace is complete: `POST /ask` → `kronk.embed` → `SurrealDB.Query` → `llm.chat`. Metrics are
+scraped on `:2132`; the local model shows up as `app_llm_request_count{provider="kronk", model="<your
+model>"}` alongside every other agent's LLM metrics. SurrealDB and the model both report on GoFr's
+health endpoint.
 
 ## Notes
 
@@ -109,6 +111,9 @@ metrics. SurrealDB and the model both report on GoFr's health endpoint.
   both run in this process.
 - **`ai.Model` extension point.** `kronk.go` implements GoFr's `ai.Model` (and `ai.Descriptor`)
   around Kronk; that's all it takes to make a non-HTTP engine a first-class GoFr LLM.
+- **Kronk logs through GoFr.** Kronk's logger is a `func(ctx, msg, args...)`, so `kronk.go` adapts it
+  to GoFr's logger — llama.cpp's backend-install and model-load lines come out in GoFr's structured
+  format at GoFr's level (set `LOG_LEVEL=DEBUG` to see the load-time detail).
 - **Vector DB.** `vector.go` stores each chunk with its embedding and ranks by
   `vector::similarity::cosine` in SurrealDB. See `main_test.go` for the pure-logic tests (chunking,
   the SurrealQL vector literal, row decoding).
