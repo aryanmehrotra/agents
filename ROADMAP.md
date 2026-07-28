@@ -18,10 +18,36 @@ auth, rate-limiting and resilience for free.
 - **research-agent** — multi-source web research with citations, SSRF-guarded outbound fetch
 - **extraction-agent** — unstructured text → structured, typed JSON against a caller-declared schema, validated deterministically in Go
 - **local-rag-agent** — 100% on-device RAG: llama.cpp in-process (Kronk) for embeddings + chat, SurrealDB vectors, exposed through GoFr as a custom `ai.Model`
+- **scheduler-agent** — plans and fires tasks: natural language → scheduled webhook, with an SSRF guardrail on the outbound URL at both schedule- and fire-time
 
-## Planned agents
+## Planned agents — the software development lifecycle
 
-- [ ] **scheduler-agent** — plans and fires tasks
+Next up: a suite that points the same spine (orchestrator + resilient HTTP + `ctx.LLM()` + built-in
+observability) at the work of **shipping software** — an agent for each stage of the SDLC. Every one
+keeps the repo's rule: the model *proposes*, a deterministic Go guardrail *disposes*, and the outcome
+is verified (it compiles, the tests pass, the check is real) before anything is trusted.
+(`code-review-agent` already covers the review step.)
+
+**Plan & design**
+- [ ] **spec-agent** — turn a ticket/issue into a structured spec (scope, acceptance criteria, risks) plus a task breakdown
+- [ ] **estimation-agent** — size the work from that spec and the repo's own history
+
+**Build**
+- [ ] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec and open it as a PR
+- [ ] **migration-agent** — apply a mechanical codemod across a repo in an isolated worktree, and verify it still builds
+
+**Test**
+- [ ] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept
+- [ ] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them
+
+**Review & release**
+- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
+- [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
+
+**Operate**
+- [ ] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces
+- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
 
 ## Toward a product
 
@@ -34,6 +60,20 @@ auth, rate-limiting and resilience for free.
 
 ## Changelog
 
+- **2026-07-28** — added **scheduler-agent**: turns a natural-language request ("in 10 minutes, ping
+  my webhook to check the deploy") into a scheduled task and actually fires it — a background ticker
+  goroutine fires due tasks independent of any single HTTP request. Task-planning/scheduling agents
+  that track deadlines and fire reminders or follow-up actions without a human re-triggering them are
+  one of the clearest "always-on" agent use cases going into production now, part of the broader shift
+  from single-shot chat toward agents that plan and execute multi-step work over time ([Sema4.ai, "10
+  AI Agent Use Cases Transforming Enterprises in
+  2026"](https://sema4.ai/blog/ai-agent-use-cases/); Gartner: 40% of enterprise applications will
+  integrate task-specific AI agents by end of 2026, cited via
+  [Lindy](https://www.lindy.ai/blog/ai-agents-examples)). Because firing a task means making a real
+  outbound HTTP request to a webhook URL that came out of untrusted, model-parsed text, every URL goes
+  through the same deterministic SSRF guardrail `research-agent` uses — refused at scheduling time
+  (never even queued) and re-checked immediately before it fires. Wired into the orchestrator's new
+  `schedule` route, with a keyword fallback for remind/reminder/schedule/webhook/cron requests.
 - **2026-07-27** — added **extraction-agent**: turns unstructured text into structured, typed JSON
   against a caller-declared schema (each field a name + type — `string`, `integer`, `number`,
   `boolean`, `date`, or a `<type>[]` list). Structured extraction / "structured output" — parsing
