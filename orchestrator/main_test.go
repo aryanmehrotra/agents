@@ -27,6 +27,9 @@ func TestKeywordRoute(t *testing.T) {
 		"parse this resume into structured fields":                                      "extract",
 		"what do my notes say about the onboarding process":                             "localdocs",
 		"search my documents for the refund policy":                                     "localdocs",
+		"remind me in 10 minutes to check the deploy":                                   "schedule",
+		"schedule a webhook to fire tomorrow at 9am":                                    "schedule",
+		"set a reminder for the standup":                                                "schedule",
 	}
 
 	for query, want := range cases {

@@ -1,7 +1,8 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
 // to route it to the right specialist agent (data / support / kb / review / redact / sql /
-// research), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker + retry +
-// rate limiter + health check, all from config. The front door itself is protected with API-key auth.
+// research / schedule), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
+// retry + rate limiter + health check, all from config. The front door itself is protected with
+// API-key auth.
 //
 // Because both the orchestrator and the specialist export traces, one /assistant call
 // becomes a single distributed trace spanning two services.
@@ -66,6 +67,12 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// scheduler-agent: same defaults — the breaker probes GoFr's default /.well-known/alive.
+	app.AddHTTPService("scheduler-agent", envOr("SCHEDULER_AGENT_URL", "http://localhost:8011"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -120,6 +127,10 @@ var routes = map[string]specialist{
 	}},
 	"localdocs": {"local-rag-agent", "ask", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"question": q})
+		return b
+	}},
+	"schedule": {"scheduler-agent", "schedule", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"request": q})
 		return b
 	}},
 }
@@ -193,6 +204,8 @@ func classify(c *gofr.Context, query string) string {
 		"invoice, resume, contract or entities into named typed values)\n"+
 		"- localdocs: a question to be answered from the user's own privately-ingested local "+
 		"documents / notes (a fully on-device RAG knowledge base)\n"+
+		"- schedule: a request to remind, notify, or trigger a webhook at a future time or after a "+
+		"delay (\"in 10 minutes\", \"tomorrow at 9am\", \"remind me to...\")\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -218,6 +231,8 @@ func classify(c *gofr.Context, query string) string {
 		return "extract"
 	case strings.Contains(w, "localdocs"):
 		return "localdocs"
+	case strings.Contains(w, "schedule"):
+		return "schedule"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -243,6 +258,8 @@ func keywordRoute(query string) string {
 		return "extract"
 	case containsAny(q, "my documents", "my notes", "my handbook", "ingested", "local rag", "private docs"):
 		return "localdocs"
+	case containsAny(q, "remind", "reminder", "schedule", "webhook", "cron job", "fire a task", "notify me later"):
+		return "schedule"
 	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
 		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
