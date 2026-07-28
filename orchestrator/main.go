@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
 // to route it to the right specialist agent (data / support / kb / review / redact / sql /
-// research / schedule / spec / estimate / scaffold), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
+// research / schedule / spec / estimate / scaffold / migrate), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
 // retry + rate limiter + health check, all from config. The front door itself is protected with
 // API-key auth.
 //
@@ -91,6 +91,12 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// migration-agent: same defaults — the breaker probes GoFr's default /.well-known/alive.
+	app.AddHTTPService("migration-agent", envOr("MIGRATION_AGENT_URL", "http://localhost:8016"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -161,6 +167,10 @@ var routes = map[string]specialist{
 	}},
 	"scaffold": {"scaffold-agent", "scaffold", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"spec": q})
+		return b
+	}},
+	"migrate": {"migration-agent", "migrate", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"instruction": q})
 		return b
 	}},
 }
@@ -242,6 +252,8 @@ func classify(c *gofr.Context, query string) string {
 		"list or a description to size)\n"+
 		"- scaffold: generate a new project/service code skeleton in any language or framework "+
 		"(boilerplate, starter files) from a description\n"+
+		"- migrate: apply a mechanical code change (codemod) across existing files — rename, replace a "+
+		"deprecated API, add a header — verifying the result still parses\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -275,6 +287,8 @@ func classify(c *gofr.Context, query string) string {
 		return "estimate"
 	case strings.Contains(w, "scaffold"):
 		return "scaffold"
+	case strings.Contains(w, "migrate"):
+		return "migrate"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -302,6 +316,8 @@ func keywordRoute(query string) string {
 		return "localdocs"
 	case containsAny(q, "remind", "reminder", "schedule", "webhook", "cron job", "fire a task", "notify me later"):
 		return "schedule"
+	case containsAny(q, "codemod", "apply a codemod", "rename across", "replace deprecated", "bulk edit", "across the codebase", "in every file", "migrate the code"):
+		return "migrate"
 	case containsAny(q, "scaffold", "skeleton", "boilerplate", "starter code", "stub out", "bootstrap a service", "new service skeleton", "generate a service", "generate a module"):
 		return "scaffold"
 	case containsAny(q, "story points", "story-points", "how many points", "t-shirt size", "size this work",
