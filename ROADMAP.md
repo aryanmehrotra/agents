@@ -56,8 +56,8 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Toward a product
 
-- [ ] agent registry / discovery endpoint
-- [ ] per-agent capability manifest + config
+- [x] agent registry / discovery endpoint ✅ *shipped* (`/capabilities`, registry-driven routing)
+- [~] per-agent capability manifest + config — *partial:* a central capability registry drives routing + discovery today; agents self-serving their own manifest is the next step
 - [ ] auth + rate-limiting on every agent (not just the orchestrator)
 - [ ] tests + CI (build all modules on every push)
 - [ ] one-command `docker-compose` for the whole system
@@ -65,6 +65,19 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — reworked **orchestrator routing** to be **registry-driven and LLM-first**. Routing
+  used to run a hand-maintained keyword chain *first* and consult the model only for leftovers, over a
+  hardcoded per-agent prompt — brittle, and every new agent meant editing both. Now a single
+  **capability registry** (route, service, request shape, description, fallback keywords per agent) is
+  the one source of truth: it drives the resilient-service registration, a router prompt **generated
+  from the live descriptions** (so the model routes over the current agent set with nothing to keep in
+  sync by hand), and a new **`GET /capabilities`** discovery endpoint. The model is now the primary
+  router; a registry-derived keyword match is only a fallback for when the model call fails. Verified
+  live: keyword-free queries ("shrink this wall of text into three bullet points", "lay out scope,
+  risks and work items") route correctly to summarizer / spec — the keyword fallback would have sent
+  both to the default agent, so the model is demonstrably doing the routing. Adding an agent is now one
+  registry entry — no keyword chains or prompt prose to edit. Lands the roadmap's *agent registry /
+  discovery endpoint*.
 - **2026-07-28** — added **migration-agent**: the maintenance side of the build stage — it applies a
   mechanical codemod (rename, replace a deprecated API, add a header) across a set of files **in any
   language**, and verifies it didn't break them. A model is good at *proposing* the edit but can't be

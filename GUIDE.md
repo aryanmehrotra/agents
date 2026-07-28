@@ -99,14 +99,22 @@ app.AddHTTPService("sql-agent", envOr("SQL_AGENT_URL", "http://localhost:8007"),
 app.EnableAPIKeyAuth("agents-demo-key")   // front-door auth
 ```
 
-### Routing: keyword-first, LLM as the tie-breaker
+### Routing: registry-driven and LLM-first
 
-A request to `POST /assistant` is classified to one specialist. Classification is **deterministic
-first** — a clear keyword wins immediately — and the LLM is only consulted for genuinely ambiguous
-queries, with a keyword route as the fallback if the model is slow or answers oddly. So routing stays
-correct even when the model is flaky. Adding a route is three small edits in `orchestrator/main.go`: a
-`routes` entry (which service + path + how to shape the body), a line in the classifier prompt, and a
-keyword case.
+A request to `POST /assistant` is routed to one specialist by a **single capability registry** in
+`orchestrator/main.go` — one entry per agent declaring its route, service, request shape, a
+description, and fallback keywords. That one list drives everything: the resilient-service
+registration, the **router prompt (generated from the live descriptions**, so the model routes over
+the current agent set with nothing to hand-maintain), and the **`GET /capabilities`** discovery
+endpoint. The model is the **primary** router; a registry-derived keyword match is only a fallback for
+when the model call fails, so routing still degrades to a heuristic instead of a 500. **Adding an agent
+is one registry entry** — no keyword chains or prompt prose to touch:
+
+```go
+{"estimate", "estimation-agent", "http://localhost:8014", "estimate", []string{"text"},
+    "size a piece of work — story points, effort, or how long it will take",
+    []string{"story points", "rough estimate", ...}},
+```
 
 ### Agents calling agents
 
@@ -132,8 +140,9 @@ fleet at the stack with `TRACE_EXPORTER=otlp` + `TRACER_URL`.
 
 ### What's next (see the ROADMAP)
 
-The composition story deepens with an **agent registry / discovery endpoint** (so the orchestrator
-learns capabilities instead of hard-coding routes), **per-agent auth + rate-limiting**, and a
+The **agent registry / discovery endpoint** now ships (`/capabilities`, registry-driven routing); the
+story deepens from there with **agents self-serving their own capability manifest** (so the
+orchestrator discovers them with zero central config), **per-agent auth + rate-limiting**, and a
 **gateway/dashboard UI** — turning this from "a router in front of specialists" into a self-hostable
 multi-agent platform.
 

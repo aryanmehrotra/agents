@@ -82,11 +82,20 @@ A request enters the **orchestrator** (rate-limited, API-key protected); an LLM 
 should handle it; the orchestrator calls that agent over a **circuit-broken, retrying** GoFr HTTP service.
 Because every hop is traced, one request is **one distributed trace across services**.
 
+Routing is **registry-driven and LLM-first**: a single [capability registry](orchestrator/main.go)
+declares each agent's route, request shape and a description, and that one list drives the
+resilient-service registration, the router prompt (generated from the live descriptions — the model
+picks over them, so no hand-maintained prompt), and a **`GET /capabilities`** discovery endpoint. A
+registry-derived keyword match is only a fallback for when the model is unavailable. **Adding an agent
+is one registry entry — no keyword chains or prompt prose to edit.**
+
+![Registry-driven, LLM-first routing — keyword-free queries placed by the model](orchestrator/docs/router-demo.png)
+
 ## 🤖 The agents
 
 | Agent | Use case | GoFr 1.58 features it shows |
 |-------|----------|-----------------------------|
-| 🧭 **[`orchestrator`](orchestrator)** | Routes a query to the right specialist (multi-agent front door) | **inter-service calls** + **circuit breaker** + **retry** + **rate limiter** + **API-key auth** |
+| 🧭 **[`orchestrator`](orchestrator)** | Routes a query to the right specialist (multi-agent front door) — **registry-driven, LLM-first**, with a `/capabilities` discovery endpoint | **inter-service calls** + **circuit breaker** + **retry** + **rate limiter** + **API-key auth** |
 | 🛍️ **[`data-agent`](data-agent)** | Ask your own service in natural language | **MCP** (`EnableMCP`) + **agent loop** (`ctx.LLM().Tools()`) |
 | 🎧 **[`support-agent`](support-agent)** | Triage a ticket / issue and draft a reply | `ctx.LLM().Chat` + **SSE streaming** |
 | 📚 **[`kb-agent`](kb-agent)** | Internal IT/HR helpdesk grounded in your docs (RAG) | retrieval → `ctx.LLM().Chat` + streaming |
