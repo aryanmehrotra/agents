@@ -255,7 +255,9 @@ func keywordFallback(query string) specialist {
 	return byRoute(defaultRoute)
 }
 
-// byRoute looks up a specialist by its route word (the registry is small, a linear scan is fine).
+// byRoute looks up a specialist by its route word (the registry is small, a linear scan is fine). An
+// unknown route resolves to the declared default agent — not merely whatever is last in the registry,
+// so reordering the registry can't change the fallback target.
 func byRoute(r string) specialist {
 	for _, s := range registry {
 		if s.Route == r {
@@ -263,7 +265,13 @@ func byRoute(r string) specialist {
 		}
 	}
 
-	return registry[len(registry)-1] // registry is never empty; last entry is the default agent
+	for _, s := range registry {
+		if s.Route == defaultRoute {
+			return s
+		}
+	}
+
+	return registry[len(registry)-1] // registry is never empty and TestRegistryWellFormed asserts the default exists
 }
 
 func containsAny(s string, subs ...string) bool {

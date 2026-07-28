@@ -108,10 +108,44 @@ func TestBody(t *testing.T) {
 	}
 }
 
-// TestEnvKey derives the URL override variable from the service name.
+// TestEnvKey derives the URL override variable from the service name, preserving the exact names the
+// deploy configs already use (backward compatibility for every agent).
 func TestEnvKey(t *testing.T) {
-	if got := envKey("data-agent"); got != "DATA_AGENT_URL" {
-		t.Errorf("envKey = %q, want DATA_AGENT_URL", got)
+	want := map[string]string{
+		"data-agent":          "DATA_AGENT_URL",
+		"code-review-agent":   "CODE_REVIEW_AGENT_URL",
+		"pii-redaction-agent": "PII_REDACTION_AGENT_URL",
+		"local-rag-agent":     "LOCAL_RAG_AGENT_URL",
+	}
+	for service, key := range want {
+		if got := envKey(service); got != key {
+			t.Errorf("envKey(%q) = %q, want %q", service, got, key)
+		}
+	}
+}
+
+// TestByRouteUnknownFallsToDefault confirms an unknown route resolves to the declared default agent,
+// independent of the registry's ordering.
+func TestByRouteUnknownFallsToDefault(t *testing.T) {
+	if got := byRoute("no-such-route").Route; got != defaultRoute {
+		t.Errorf("byRoute(unknown) = %q, want the default %q", got, defaultRoute)
+	}
+}
+
+// TestCapabilities returns every registered agent for discovery.
+func TestCapabilities(t *testing.T) {
+	res, err := capabilities(nil)
+	if err != nil {
+		t.Fatalf("capabilities() error = %v", err)
+	}
+
+	m := res.(map[string]any)
+	if m["count"].(int) != len(registry) {
+		t.Errorf("capabilities count = %v, want %d", m["count"], len(registry))
+	}
+
+	if len(m["agents"].([]map[string]any)) != len(registry) {
+		t.Error("capabilities should list every registry entry")
 	}
 }
 
