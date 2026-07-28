@@ -99,37 +99,41 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 
 ## 🤖 The agents
 
-| Agent | Use case | GoFr 1.58 features it shows |
-|-------|----------|-----------------------------|
-| 🧭 **[`orchestrator`](orchestrator)** | Routes a query to the right specialist (multi-agent front door) — **registry-driven, LLM-first**, with a `/capabilities` discovery endpoint | **inter-service calls** + **circuit breaker** + **retry** + **rate limiter** + **API-key auth** |
-| 🛍️ **[`data-agent`](data-agent)** | Ask your own service in natural language | **MCP** (`EnableMCP`) + **agent loop** (`ctx.LLM().Tools()`) |
-| 🎧 **[`support-agent`](support-agent)** | Triage a ticket / issue and draft a reply | `ctx.LLM().Chat` + **SSE streaming** |
-| 📚 **[`kb-agent`](kb-agent)** | Internal IT/HR helpdesk grounded in your docs (RAG) | retrieval → `ctx.LLM().Chat` + streaming |
-| 🔍 **[`code-review-agent`](code-review-agent)** | Review a diff, leave file/line-anchored comments | structured `ctx.LLM().Chat` output + streaming |
-| 🛡️ **[`pii-redaction-agent`](pii-redaction-agent)** | Detect and redact PII before text hits storage/logs | LLM-detect + deterministic Go redaction, streamed rationale |
-| 📝 **[`summarizer-agent`](summarizer-agent)** | Summarize a long document / email / chat thread | structured `ctx.LLM().Chat` output + streaming |
-| 🧠 **[`memory-agent`](memory-agent)** | Conversational agent with real long-term memory over a **stateless** model | **`Embedder`** (`ctx.LLM("embed").Embed`) + **SurrealDB** vector recall |
-| 🗄️ **[`sql-agent`](sql-agent)** | Ask a database in natural language; SQL runs for real, guardrailed | zero-config **`c.SQL`** datasource + LLM-generated, read-only-checked SQL |
-| 🔍 **[`research-agent`](research-agent)** | Multi-source web research with inline `[n]` citations | real outbound fetch + SSRF-guarded URL allowlist logic, `ctx.LLM().Chat` synthesis |
-| 🧩 **[`extraction-agent`](extraction-agent)** | Turn unstructured text into structured, typed JSON against a declared schema | `ctx.LLM().Chat` + deterministic Go schema/type validation of the model's output |
-| 🦙 **[`local-rag-agent`](local-rag-agent)** | 100% on-device RAG — ingest, embed, retrieve and answer with citations, nothing leaves the machine | **custom `ai.Model`** (`app.AddLLM`) over **llama.cpp in-process (Kronk)** + **SurrealDB** vectors |
-| 🗓️ **[`scheduler-agent`](scheduler-agent)** | Turn a natural-language request into a task that actually fires later | background ticker goroutine + `ctx.LLM().Generate` + SSRF-guarded outbound webhook |
-| 🧵 **[`workflow-agent`](workflow-agent)** | Turn one goal into a multi-step workflow across the fleet — plan, dispatch each step to the hub, thread outputs | LLM plan + deterministic guardrail, **`PostWithHeaders`** dispatch to the orchestrator, one distributed trace |
-| 📋 **[`spec-agent`](spec-agent)** | Turn a ticket / issue into a structured engineering spec — scope, testable acceptance criteria, risks, task breakdown | structured `ctx.LLM().Chat` output + deterministic Go normalization, gated on a real spec (summary + criteria + tasks) |
-| 📐 **[`estimation-agent`](estimation-agent)** | Size a task breakdown into a point estimate + optimistic/likely/pessimistic range (and a duration, given velocity) | `ctx.LLM().Chat` for relative sizing only — **all arithmetic done in Go** from a fixed size→points table; the model's own total is ignored |
-| 🏗️ **[`scaffold-agent`](scaffold-agent)** | Generate a runnable project skeleton from a spec — **in any stack** (Python/FastAPI, Node/Express, Go/GoFr, …) | `ctx.LLM().Chat` + **filesystem-path guardrail** (no traversal/escape, binary/non-UTF-8 rejected) + **best-effort syntax check** (Go via `go/format`, JSON, YAML) — in-process, no repo touched |
-| 🔧 **[`migration-agent`](migration-agent)** | Apply a mechanical codemod across files (rename, replace a deprecated API, add a header) — **any language** | `ctx.LLM().Chat` + **deterministic Go diff** per file + **re-parse verification** (a rewrite that breaks a Go/JSON/YAML file is rejected, original kept) — in-process, no repo touched |
-| 🧪 **[`test-gen-agent`](test-gen-agent)** | Write unit tests for code — and for Go, **compile and run them** to prove they pass before keeping them | `ctx.LLM().Chat` + **`go test` in an isolated, offline temp module** (a test that doesn't build-and-pass is returned but not kept) — no repo touched |
+18 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
+proposes, Go disposes** — a deterministic guardrail validates every answer.
 
-> Each agent is its **own Go module** — copy one out and run it standalone.
-> Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
-> a real embeddings model — [Ollama](https://ollama.com) or OpenAI), and `local-rag-agent` runs its
-> models **on-device on llama.cpp** and needs a SurrealDB — both fully local, see their READMEs. The
-> rest run keyless via the shim.
+🧭 **[`orchestrator`](orchestrator)** — the front door. Routes any query to the right agent, **LLM-first**
+over a [capability registry](orchestrator), with a `/capabilities` discovery endpoint.
 
-> 📗 **[GUIDE.md](GUIDE.md)** — how to **customise any agent** (swap provider/model, point at your own
-> data, tune the guardrails, add your own agent) and how they **compose** (resilient inter-agent calls,
-> one distributed trace, building pipelines).
+**🔎 Answer & retrieve**
+- **[`data-agent`](data-agent)** — ask your own service in natural language (MCP tool loop)
+- **[`sql-agent`](sql-agent)** — ask a database; guardrailed read-only SQL runs for real
+- **[`kb-agent`](kb-agent)** — IT/HR helpdesk grounded in your docs (RAG)
+- **[`research-agent`](research-agent)** — multi-source web research, cited, SSRF-guarded
+- **[`local-rag-agent`](local-rag-agent)** — 100% on-device RAG (llama.cpp + SurrealDB)
+- **[`support-agent`](support-agent)** — triage a ticket, draft a reply (SSE)
+- **[`memory-agent`](memory-agent)** — long-term memory over a stateless model (vector recall)
+
+**✍️ Text → structured**
+- **[`summarizer-agent`](summarizer-agent)** — tl;dr + key points, structured & streamed
+- **[`pii-redaction-agent`](pii-redaction-agent)** — detect + redact PII, deterministically in Go
+- **[`extraction-agent`](extraction-agent)** — text → typed JSON against your schema
+
+**🏗️ Build & ship — the SDLC suite**
+- **[`code-review-agent`](code-review-agent)** — review a diff, file/line-anchored
+- **[`spec-agent`](spec-agent)** — ticket → structured spec, gated on real criteria
+- **[`estimation-agent`](estimation-agent)** — size work; **all arithmetic done in Go**
+- **[`scaffold-agent`](scaffold-agent)** — spec → runnable skeleton, **any stack**
+- **[`migration-agent`](migration-agent)** — codemod across files, re-parsed so it can't corrupt
+- **[`test-gen-agent`](test-gen-agent)** — writes tests, then **compiles + runs** them
+
+**🗓️ Automate & compose**
+- **[`scheduler-agent`](scheduler-agent)** — natural language → a task that actually fires later
+- **[`workflow-agent`](workflow-agent)** — one goal → a multi-step plan across the fleet
+
+> **Keyless via the shim**, except `memory-agent` (needs a real chat + embed model) and `local-rag-agent`
+> (on-device llama.cpp + SurrealDB) — both fully local, see their READMEs.
+> 📗 **[GUIDE.md](GUIDE.md)** — customise any agent and compose them.
 
 ---
 
@@ -196,70 +200,54 @@ from GoFr, all observable.
 
 ---
 
-## 📊 Observability — the complete story
+## 📊 Observability
 
-Every LLM call, tool call and inter-agent hop is traced and measured with **zero extra code**. Spin up
-the [local stack](observability) and watch it live:
+Every LLM call, tool call and inter-agent hop is traced and measured with **zero extra code**.
 
 ```bash
 docker compose -f observability/docker-compose.yml up -d   # Jaeger + Prometheus + Grafana
 ```
 
-**One `/assistant` request = one distributed trace across two services.** The orchestrator's routing
-`llm.generate`, the inter-agent call, and `data-agent`'s full agent loop (`llm.chat` + tool calls) —
-**32 spans, 2 services, depth 7** — in a single Jaeger trace (teal = orchestrator, yellow = data-agent):
+**One `/assistant` request = one distributed trace across services** — the orchestrator's routing, the
+inter-agent call, and the specialist's full agent loop: 32 spans, 2 services, depth 7.
 
 ![Distributed trace across orchestrator and data-agent](docs/jaeger-multiagent-trace.png)
 
-**A pre-provisioned Grafana dashboard** — inter-agent calls by target, HTTP throughput & p95 latency,
-LLM requests by operation, tokens/s, and per-agent memory & goroutines, straight from GoFr's metrics:
+A **pre-provisioned Grafana dashboard** — inter-agent calls, HTTP throughput & p95, LLM requests by
+operation, tokens/s, per-agent memory & goroutines — straight from GoFr's metrics:
 
 ![Multi-agent Grafana dashboard](docs/grafana-llm.png)
 
-**Embeddings are first-class here too.** The `memory-agent`'s vector-recall embed calls ride the same
-instrumentation as chat, so one `POST /chat` trace shows the full memory turn — recall embed →
-SurrealDB lookup → chat → SurrealDB writes → the stored-fact embed — and the dashboard breaks LLM
-requests down **by operation** (`embed` beside `chat`) *and* charts the memory payoff: bounded vs
-naive context tokens per turn, and the **cumulative tokens saved** by recall (176K and climbing in
-the run below):
+**Embeddings are first-class too** — `memory-agent`'s vector recall rides the same instrumentation, so
+one trace shows the whole memory turn (recall → SurrealDB → chat → writes), and the dashboard charts
+the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 
 ![Memory-agent trace: embed + SurrealDB + chat](docs/jaeger-memory-trace.png)
 ![Grafana: chat and embed operations](docs/grafana-memory-embed.png)
 
-<sub>The *inter-agent* panels show memory-agent → summarizer-agent calls (it compacts old turns into summaries once a session outgrows the window).</sub>
-
-See [`observability/`](observability) to run it yourself. Prompt/response text is kept **off** metrics
-and logs by design.
+<sub>Prompt/response text is kept **off** metrics and logs by design. See [`observability/`](observability) to run it.</sub>
 
 ---
 
-## 🗂️ Layout
+<details>
+<summary><b>🗂️ Ports & layout</b></summary>
 
-```
-agents/
-├── 🧭 orchestrator/     LLM router → specialists (circuit breaker/retry/auth)  :8080
-├── 🛍️ data-agent/       MCP agent loop over its own endpoints                  :8000  (MCP :8200)
-├── 🎧 support-agent/    ticket triage + SSE reply                              :8001
-├── 📚 kb-agent/         RAG helpdesk over ./kb                                  :8002
-├── 🔍 code-review-agent/ structured diff review + streamed prose review         :8003
-├── 🛡️ pii-redaction-agent/ LLM-detect + deterministic redact + streamed rationale :8004
-├── 📝 summarizer-agent/ structured breakdown + streamed narrative summary          :8005
-├── 🧠 memory-agent/     stateless model + SurrealDB vector memory (Embedder)      :8006
-├── 🗄️ sql-agent/        NL → SQL over a zero-config datasource, guardrailed        :8007
-├── 🔍 research-agent/   multi-source web research, cited, SSRF-guarded fetch          :8008
-├── 🧩 extraction-agent/ unstructured text → typed JSON, schema-validated in Go        :8009
-├── 🦙 local-rag-agent/  on-device RAG — llama.cpp (Kronk) + SurrealDB, all local       :8010
-├── 🗓️ scheduler-agent/  NL request → scheduled task, fired by a background ticker      :8011
-├── 🧵 workflow-agent/   one goal → multi-step plan, dispatched across the fleet         :8012
-├── 📋 spec-agent/       ticket → structured spec (scope, criteria, risks, tasks)        :8013
-├── 📐 estimation-agent/ task breakdown → point estimate + range, all math done in Go    :8014
-├── 🏗️ scaffold-agent/   spec → project skeleton in any stack (paths guarded, syntax-checked) :8015
-├── 🔧 migration-agent/  codemod across files → diff + re-parse verify, original kept if broken :8016
-├── 🧪 test-gen-agent/   write tests → for Go, compile + run them; kept only if they pass          :8017
-├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
-└── 🧪 localtest/
-    └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088
-```
+| Port | Agent | | Port | Agent |
+|--|--|--|--|--|
+| 8080 | orchestrator | | 8009 | extraction-agent |
+| 8000 | data-agent (MCP 8200) | | 8010 | local-rag-agent |
+| 8001 | support-agent | | 8011 | scheduler-agent |
+| 8002 | kb-agent | | 8012 | workflow-agent |
+| 8003 | code-review-agent | | 8013 | spec-agent |
+| 8004 | pii-redaction-agent | | 8014 | estimation-agent |
+| 8005 | summarizer-agent | | 8015 | scaffold-agent |
+| 8006 | memory-agent | | 8016 | migration-agent |
+| 8007 | sql-agent | | 8017 | test-gen-agent |
+| 8008 | research-agent | | 8088 | claude-openai-shim |
+
+Each agent is its own directory + Go module; `observability/` holds the docker-compose stack.
+
+</details>
 
 ---
 
