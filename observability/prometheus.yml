@@ -20,3 +20,4 @@ scrape_configs:
           - "host.docker.internal:2133"  # scheduler-agent
           - "host.docker.internal:2134"  # workflow-agent
           - "host.docker.internal:2135"  # spec-agent
+          - "host.docker.internal:2136"  # estimation-agent

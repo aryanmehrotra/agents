@@ -44,6 +44,7 @@ flowchart LR
         ORCH -->|"circuit breaker + retry"| L["🦙 local-rag-agent<br/>on-device RAG (llama.cpp)"]
         ORCH -->|"circuit breaker + retry"| SC["🗓️ scheduler-agent<br/>plans + fires tasks, SSRF-guarded"]
         ORCH -->|"circuit breaker + retry"| SP["📋 spec-agent<br/>ticket → structured spec"]
+        ORCH -->|"circuit breaker + retry"| ES["📐 estimation-agent<br/>size work, Go does the math"]
     end
 
     D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
@@ -58,6 +59,7 @@ flowchart LR
     L --> LLM
     SC --> LLM
     SP --> LLM
+    ES --> LLM
     ORCH --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
@@ -68,7 +70,7 @@ flowchart LR
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class ORCH,D,S,K,R,P,U,Q,W,X,L,SC,SP,WF agent;
+    class ORCH,D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,WF agent;
     class LLM core;
 ```
 
@@ -95,6 +97,7 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🗓️ **[`scheduler-agent`](scheduler-agent)** | Turn a natural-language request into a task that actually fires later | background ticker goroutine + `ctx.LLM().Generate` + SSRF-guarded outbound webhook |
 | 🧵 **[`workflow-agent`](workflow-agent)** | Turn one goal into a multi-step workflow across the fleet — plan, dispatch each step to the hub, thread outputs | LLM plan + deterministic guardrail, **`PostWithHeaders`** dispatch to the orchestrator, one distributed trace |
 | 📋 **[`spec-agent`](spec-agent)** | Turn a ticket / issue into a structured engineering spec — scope, testable acceptance criteria, risks, task breakdown | structured `ctx.LLM().Chat` output + deterministic Go normalization, gated on a real spec (summary + criteria + tasks) |
+| 📐 **[`estimation-agent`](estimation-agent)** | Size a task breakdown into a point estimate + optimistic/likely/pessimistic range (and a duration, given velocity) | `ctx.LLM().Chat` for relative sizing only — **all arithmetic done in Go** from a fixed size→points table; the model's own total is ignored |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 > Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
@@ -117,7 +120,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent orchestrator workflow-agent; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent orchestrator workflow-agent; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -227,6 +230,7 @@ agents/
 ├── 🗓️ scheduler-agent/  NL request → scheduled task, fired by a background ticker      :8011
 ├── 🧵 workflow-agent/   one goal → multi-step plan, dispatched across the fleet         :8012
 ├── 📋 spec-agent/       ticket → structured spec (scope, criteria, risks, tasks)        :8013
+├── 📐 estimation-agent/ task breakdown → point estimate + range, all math done in Go    :8014
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088

@@ -21,6 +21,7 @@ auth, rate-limiting and resilience for free.
 - **scheduler-agent** — plans and fires tasks: natural language → scheduled webhook, with an SSRF guardrail on the outbound URL at both schedule- and fire-time
 - **workflow-agent** — turns one goal into a multi-step workflow across the fleet: plans ordered sub-tasks and dispatches each through the orchestrator hub, threading outputs — composing any agents without hard-coding a single peer
 - **spec-agent** — turns a raw ticket/issue into a structured engineering spec (scope, testable acceptance criteria, risks, task breakdown), normalized deterministically in Go and gated on a real spec before it's called complete
+- **estimation-agent** — sizes a task breakdown into a point estimate with an optimistic/likely/pessimistic range (and a duration, given velocity); the model only picks relative sizes and confidence, and every number is computed in Go from a fixed size→points table — the model's own arithmetic is never trusted
 
 ## Planned agents — the software development lifecycle
 
@@ -32,7 +33,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Plan & design**
 - [x] **spec-agent** — turn a ticket/issue into a structured spec (scope, acceptance criteria, risks) plus a task breakdown ✅ *shipped*
-- [ ] **estimation-agent** — size the work from that spec and the repo's own history
+- [x] **estimation-agent** — size the work from that spec and the repo's own history ✅ *shipped*
 
 **Build**
 - [ ] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec and open it as a PR
@@ -62,6 +63,18 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **estimation-agent**: the second stop in the SDLC suite — it sizes a task
+  breakdown (for example spec-agent's output) or a raw description into a point estimate with an
+  optimistic/likely/pessimistic range, and — given a team velocity — a duration in working days. The
+  division of labour is the whole design: a model is genuinely useful at the *judgment* (sizing one
+  task relative to another, and saying how confident it is) but must not be trusted with the
+  *arithmetic* — models miscount, drop tasks from a sum, and confidently return a total that doesn't
+  match their own per-task sizes. So the model only proposes a T-shirt size and a confidence per task;
+  every number after that is computed deterministically in Go from a fixed size→points ladder, the
+  per-task confidence bands are summed into the range (so it reflects *which* tasks are uncertain, not
+  a blanket fudge factor), and any total the model volunteers is recorded next to the one Go computed
+  and then ignored. Wired into the orchestrator's new `estimate` route, with a keyword fallback for
+  estimate / story-points / how-long / sizing requests.
 - **2026-07-28** — added **spec-agent**: the first stop in the SDLC suite — it turns a raw ticket or
   issue into a structured engineering spec: a one-line summary, what's in and out of scope, testable
   acceptance criteria, risks, a task breakdown, and the open questions that still block the work. This
