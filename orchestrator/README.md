@@ -1,18 +1,26 @@
 # orchestrator
 
-The multi-agent **front door**. It receives a user query, uses an LLM to route it to the right
-specialist (`data` / `support` / `kb` / `review` / `redact`), and calls that agent over a **resilient GoFr HTTP
-service** — circuit breaker + retry + rate limiter + health check — all from config, no handler
-plumbing.
+The multi-agent **front door**. It receives a user query, **uses an LLM to route it** to the right
+specialist, and calls that agent over a **resilient GoFr HTTP service** — circuit breaker + retry +
+rate limiter + health check — all from config, no handler plumbing.
 
 Because the orchestrator and the specialist both export traces, one `/assistant` call becomes a single
 **distributed trace across two services**.
 
-## Endpoint
+Routing is **registry-driven and LLM-first**. A single **capability registry** (`registry` in
+`main.go`) declares each agent — route, service, request shape, description, fallback keywords — and
+that one list drives the resilient-service registration, the router prompt (**generated from the live
+descriptions**, so the model routes over the current agents with nothing to hand-maintain), and the
+`/capabilities` endpoint. The model is the primary router; a registry-derived keyword match is only a
+fallback for when the model is unavailable. **Adding an agent is one registry entry** — no keyword
+chains or prompt prose to edit.
+
+## Endpoints
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | `/assistant` | `X-Api-Key` | classify the query, route to a specialist, return its answer |
+| POST | `/assistant` | `X-Api-Key` | route the query to a specialist (LLM-first) and return its answer |
+| GET | `/capabilities` | `X-Api-Key` | discovery — the registered agents and what each is for |
 
 Response: `{ "route": "...", "routed_to": "...-agent", "response": <specialist payload> }`
 
