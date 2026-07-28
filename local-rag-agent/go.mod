@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	github.com/ardanlabs/kronk v1.29.3
+	go.opentelemetry.io/otel v1.44.0
 	gofr.dev v1.58.0
 	gofr.dev/pkg/gofr/datasource/surrealdb v0.3.4
 )
@@ -118,7 +119,6 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.69.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.69.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.65.0 // indirect

@@ -11,25 +11,76 @@ import (
 	"time"
 
 	"github.com/ardanlabs/kronk/sdk/kronk"
+	"github.com/ardanlabs/kronk/sdk/kronk/applog"
 	"github.com/ardanlabs/kronk/sdk/kronk/model"
 	"github.com/ardanlabs/kronk/sdk/tools/libs"
 	"github.com/ardanlabs/kronk/sdk/tools/models"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"gofr.dev/pkg/gofr/ai"
 	"gofr.dev/pkg/gofr/datasource"
+	"gofr.dev/pkg/gofr/logging"
 )
+
+// kronkLogger adapts GoFr's structured logger to Kronk's logger (a func(ctx, msg, args...)), so every
+// line Kronk emits — backend install, model download/load, runtime notices — flows through GoFr's
+// logging instead of raw stdout. Chatty download-progress lines are kept at debug; everything else is
+// info. This is the same "make it a GoFr citizen" move as the custom ai.Model: one adapter, and a
+// third-party library logs in your app's format and level.
+func kronkLogger(lg logging.Logger) applog.Logger {
+	return func(_ context.Context, msg string, args ...any) {
+		msg = strings.TrimPrefix(strings.TrimSpace(msg), "\r")
+		if msg == "" {
+			return
+		}
+
+		if kv := kvPairs(args); kv != "" {
+			msg += " " + kv
+		}
+
+		line := "kronk: " + msg
+		if strings.Contains(msg, "Downloading") || strings.Contains(msg, "MB of") {
+			lg.Debug(line) // per-chunk download progress — noisy, keep it at debug
+			return
+		}
+
+		lg.Info(line)
+	}
+}
+
+// kvPairs renders Kronk's structured args (alternating key, value) as "key=value" text.
+func kvPairs(args []any) string {
+	var b strings.Builder
+
+	for i := 0; i+1 < len(args); i += 2 {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+
+		fmt.Fprintf(&b, "%v=%v", args[i], args[i+1])
+	}
+
+	if len(args)%2 == 1 {
+		fmt.Fprintf(&b, " %v", args[len(args)-1])
+	}
+
+	return b.String()
+}
 
 // bootstrapKronk installs the llama.cpp backend (once, cached) and downloads + loads the chat and
 // embedding GGUF models from their configured sources (Hugging Face refs or local paths). First run
 // downloads a few hundred MB per model; later runs load from the local cache. It is generic: point
 // CHAT_MODEL / EMBED_MODEL at any GGUF Kronk can resolve.
-func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int) (chat, embed *kronk.Kronk, err error) {
+func bootstrapKronk(ctx context.Context, lg logging.Logger, chatSrc, embedSrc string, ctxWindow int) (chat, embed *kronk.Kronk, err error) {
+	klog := kronkLogger(lg) // route all of Kronk's logging through GoFr
+
 	lib, err := libs.New()
 	if err != nil {
 		return nil, nil, fmt.Errorf("kronk libs.New: %w", err)
 	}
 
-	if _, err = lib.Download(ctx, kronk.FmtLogger); err != nil {
+	if _, err = lib.Download(ctx, klog); err != nil {
 		return nil, nil, fmt.Errorf("install llama.cpp backend: %w", err)
 	}
 
@@ -42,17 +93,17 @@ func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int
 		return nil, nil, fmt.Errorf("kronk models.New: %w", err)
 	}
 
-	cp, err := mdls.Download(ctx, kronk.FmtLogger, chatSrc)
+	cp, err := mdls.Download(ctx, klog, chatSrc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download chat model %q: %w", chatSrc, err)
 	}
 
-	ep, err := mdls.Download(ctx, kronk.FmtLogger, embedSrc)
+	ep, err := mdls.Download(ctx, klog, embedSrc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("download embed model %q: %w", embedSrc, err)
 	}
 
-	chatOpts := []model.Option{model.WithModelFiles(cp.ModelFiles)}
+	chatOpts := []model.Option{model.WithModelFiles(cp.ModelFiles), model.WithLog(klog)}
 	if ctxWindow > 0 {
 		chatOpts = append(chatOpts, model.WithContextWindow(ctxWindow))
 	}
@@ -61,7 +112,7 @@ func bootstrapKronk(ctx context.Context, chatSrc, embedSrc string, ctxWindow int
 		return nil, nil, fmt.Errorf("load chat model: %w", err)
 	}
 
-	if embed, err = kronk.New(model.WithModelFiles(ep.ModelFiles)); err != nil {
+	if embed, err = kronk.New(model.WithModelFiles(ep.ModelFiles), model.WithLog(klog)); err != nil {
 		return nil, nil, fmt.Errorf("load embed model: %w", err)
 	}
 
@@ -132,17 +183,37 @@ func (m *chatModel) Chat(ctx context.Context, messages []ai.Message, opts ...ai.
 		defer cancel()
 	}
 
-	resp, err := m.krn.Chat(ctx, d)
+	// Generate inside an explicit span and read the usage/content within it, so the actual token
+	// generation (the bulk of a chat call) is attributed to the trace rather than left as an
+	// unexplained gap. Kronk materializes the response lazily, so touching it here matters.
+	genCtx, span := otel.Tracer("local-rag-agent").Start(ctx, "kronk.generate")
+
+	resp, err := m.krn.Chat(genCtx, d)
 	if err != nil {
+		span.RecordError(err)
+		span.End()
+
 		return nil, err
 	}
 
 	if len(resp.Choices) == 0 || resp.Choices[0].Message == nil {
+		span.End()
 		return nil, fmt.Errorf("kronk: model returned no message")
 	}
 
+	content := strings.TrimSpace(resp.Choices[0].Message.Content) // force materialization in-span
+
+	if resp.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("gen.completion_tokens", resp.Usage.CompletionTokens),
+			attribute.Float64("gen.tokens_per_sec", resp.Usage.TokensPerSecond),
+		)
+	}
+
+	span.End()
+
 	out := &ai.Response{
-		Content: strings.TrimSpace(resp.Choices[0].Message.Content),
+		Content: content,
 		Model:   m.modelID,
 	}
 
@@ -170,9 +241,16 @@ func (m *chatModel) HealthCheck(_ context.Context) datasource.Health {
 	}
 }
 
-// embedText turns text into a vector using the in-process embedding model. Kronk requires a context
-// deadline, so one is added if absent.
+// embedText turns text into a vector using the in-process embedding model. It opens a "kronk.embed"
+// span so the local embedding step shows up in the request's trace — otherwise the biggest slice of
+// an /ask (embedding the question) would be invisible, since embeddings don't go through ctx.LLM().
+// Kronk requires a context deadline, so one is added if absent.
 func embedText(ctx context.Context, krn *kronk.Kronk, timeout time.Duration, text string) ([]float32, error) {
+	ctx, span := otel.Tracer("local-rag-agent").Start(ctx, "kronk.embed")
+	defer span.End()
+
+	span.SetAttributes(attribute.Int("embed.input_chars", len(text)))
+
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 
@@ -182,12 +260,18 @@ func embedText(ctx context.Context, krn *kronk.Kronk, timeout time.Duration, tex
 
 	resp, err := krn.Embeddings(ctx, model.D{"input": text})
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 
 	if len(resp.Data) == 0 || len(resp.Data[0].Embedding) == 0 {
-		return nil, fmt.Errorf("kronk: no embedding returned")
+		err = fmt.Errorf("kronk: no embedding returned")
+		span.RecordError(err)
+
+		return nil, err
 	}
+
+	span.SetAttributes(attribute.Int("embed.dimensions", len(resp.Data[0].Embedding)))
 
 	return resp.Data[0].Embedding, nil
 }

@@ -53,7 +53,7 @@ func main() {
 	app.Logger().Infof("local-rag: loading local models (chat=%s embed=%s) — first run downloads them...",
 		chatSrc, embedSrc)
 
-	chatKrn, embedKrn, err := bootstrapKronk(context.Background(), chatSrc, embedSrc, envInt("CHAT_CONTEXT", 0))
+	chatKrn, embedKrn, err := bootstrapKronk(context.Background(), app.Logger(), chatSrc, embedSrc, envInt("CHAT_CONTEXT", 0))
 	if err != nil {
 		app.Logger().Fatalf("local-rag: model bootstrap failed: %v", err)
 	}
