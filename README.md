@@ -94,6 +94,10 @@ Because every hop is traced, one request is **one distributed trace across servi
 > models **on-device on llama.cpp** and needs a SurrealDB — both fully local, see their READMEs. The
 > rest run keyless via the shim.
 
+> 📗 **[GUIDE.md](GUIDE.md)** — how to **customise any agent** (swap provider/model, point at your own
+> data, tune the guardrails, add your own agent) and how they **compose** (resilient inter-agent calls,
+> one distributed trace, building pipelines).
+
 ---
 
 ## ⚡ Quickstart — keyless, local, end-to-end
