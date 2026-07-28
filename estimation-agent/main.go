@@ -322,11 +322,12 @@ func extractTaskArray(s string) (tasks []map[string]any, claimedTotal *float64, 
 		case ch == ']':
 			depth--
 			if depth == 0 {
-				if uErr := json.Unmarshal([]byte(s[start:i+1]), &tasks); uErr != nil {
+				var raw []any
+				if uErr := json.Unmarshal([]byte(s[start:i+1]), &raw); uErr != nil {
 					return nil, claimedTotal, uErr
 				}
 
-				return tasks, claimedTotal, nil
+				return coerceTasks(raw), claimedTotal, nil
 			}
 		}
 	}
@@ -334,8 +335,29 @@ func extractTaskArray(s string) (tasks []map[string]any, claimedTotal *float64, 
 	return nil, claimedTotal, fmt.Errorf("unbalanced JSON array")
 }
 
+// coerceTasks turns the raw array elements into task maps, tolerating a model that flattened the
+// breakdown into bare strings: each string becomes a title-only task, which then fails the size check
+// in normalize and is reported as `invalid` — so a few malformed elements don't sink the whole
+// response the way unmarshalling straight into []map[string]any would.
+func coerceTasks(raw []any) []map[string]any {
+	out := make([]map[string]any, 0, len(raw))
+
+	for _, e := range raw {
+		switch t := e.(type) {
+		case map[string]any:
+			out = append(out, t)
+		case string:
+			out = append(out, map[string]any{"title": t})
+		}
+	}
+
+	return out
+}
+
 // sniffClaimedTotal looks for a "total"/"total_points"/"total_story_points" number in the model's
-// response — the arithmetic it wasn't asked to do — so a caller can see it was ignored. Returns nil
+// response — the arithmetic it wasn't asked to do — so a caller can see it was ignored. It only
+// matches the token as an object KEY (a colon must immediately follow it, allowing whitespace), so the
+// same word appearing inside a task's rationale value is not mistaken for a claimed total. Returns nil
 // when the model behaved and gave no total.
 func sniffClaimedTotal(s string) *float64 {
 	for _, key := range []string{"\"total_story_points\"", "\"total_points\"", "\"total\""} {
@@ -344,16 +366,15 @@ func sniffClaimedTotal(s string) *float64 {
 			continue
 		}
 
-		rest := s[idx+len(key):]
-
-		colon := strings.IndexByte(rest, ':')
-		if colon < 0 {
+		// A real key is followed by ':'; a value (e.g. "rationale":"total") is followed by ',' or '}'.
+		rest := strings.TrimLeft(s[idx+len(key):], " \t\n")
+		if !strings.HasPrefix(rest, ":") {
 			continue
 		}
 
 		num := strings.Builder{}
 
-		for _, r := range strings.TrimSpace(rest[colon+1:]) {
+		for _, r := range strings.TrimLeft(rest[1:], " \t\n\"") { // tolerate a quoted number too
 			if (r >= '0' && r <= '9') || r == '.' {
 				num.WriteRune(r)
 

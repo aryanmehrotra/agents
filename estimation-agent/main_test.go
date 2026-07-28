@@ -87,6 +87,37 @@ func TestSniffClaimedTotal(t *testing.T) {
 	if got := sniffClaimedTotal(`[{"title":"x","size":"M"}]`); got != nil {
 		t.Errorf("sniffClaimedTotal(no total) = %v, want nil", got)
 	}
+
+	// The word "total" appearing as a rationale VALUE must not be read as a claimed total: the
+	// token isn't followed by a colon, so it's not a key.
+	if got := sniffClaimedTotal(`[{"size":"M","rationale":"total"},{"size":"S","points":3}]`); got != nil {
+		t.Errorf("sniffClaimedTotal(total as a value) = %v, want nil", got)
+	}
+
+	// A quoted number total is still recovered.
+	if got := sniffClaimedTotal(`{"total": "7"}`); got == nil || *got != 7 {
+		t.Errorf("sniffClaimedTotal(quoted) = %v, want 7", got)
+	}
+}
+
+// TestExtractTaskArrayResilient tolerates a model that flattened some tasks into bare strings: the
+// valid object still parses, and the bare string survives as a title-only task (later flagged
+// invalid) rather than sinking the whole response.
+func TestExtractTaskArrayResilient(t *testing.T) {
+	tasks, _, err := extractTaskArray(`["just a title", {"title":"real","size":"S","confidence":"high"}]`)
+	if err != nil {
+		t.Fatalf("extractTaskArray(mixed) errored: %v", err)
+	}
+
+	if len(tasks) != 2 || tasks[0]["title"] != "just a title" || tasks[1]["size"] != "S" {
+		t.Fatalf("extractTaskArray(mixed) = %#v", tasks)
+	}
+
+	// End to end through normalize: the object is sized, the bare string is invalid (no size).
+	sized, invalid := normalize(tasks)
+	if len(sized) != 1 || len(invalid) != 1 {
+		t.Errorf("normalize(mixed) = %d sized, %d invalid; want 1 and 1", len(sized), len(invalid))
+	}
 }
 
 // TestExtractTaskArray recovers the array from a fenced response and surfaces a claimed total; it
