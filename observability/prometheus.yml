@@ -22,3 +22,4 @@ scrape_configs:
           - "host.docker.internal:2135"  # spec-agent
           - "host.docker.internal:2136"  # estimation-agent
           - "host.docker.internal:2137"  # scaffold-agent
+          - "host.docker.internal:2138"  # migration-agent

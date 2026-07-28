@@ -23,6 +23,7 @@ auth, rate-limiting and resilience for free.
 - **spec-agent** — turns a raw ticket/issue into a structured engineering spec (scope, testable acceptance criteria, risks, task breakdown), normalized deterministically in Go and gated on a real spec before it's called complete
 - **estimation-agent** — sizes a task breakdown into a point estimate with an optimistic/likely/pessimistic range (and a duration, given velocity); the model only picks relative sizes and confidence, and every number is computed in Go from a fixed size→points table — the model's own arithmetic is never trusted
 - **scaffold-agent** — generates a runnable project skeleton from a spec **in any stack** (Python, Node, Go, Rust, …); the model proposes files and Go disposes — every path is sanitized against traversal/escape, binary/non-UTF-8 files are rejected, and files it can parse (Go/JSON/YAML) are syntax-checked, all in-process (no disk writes, no repo touched)
+- **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 
 ## Planned agents — the software development lifecycle
 
@@ -38,7 +39,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Build**
 - [x] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec ✅ *shipped* (returns verified files in-process; opening a PR is a caller's choice)
-- [ ] **migration-agent** — apply a mechanical codemod across a repo in an isolated worktree, and verify it still builds
+- [x] **migration-agent** — apply a mechanical codemod across files and verify it still parses ✅ *shipped* (operates on supplied file contents in-memory; a broken rewrite is rejected)
 
 **Test**
 - [ ] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept
@@ -64,6 +65,18 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **migration-agent**: the maintenance side of the build stage — it applies a
+  mechanical codemod (rename, replace a deprecated API, add a header) across a set of files **in any
+  language**, and verifies it didn't break them. A model is good at *proposing* the edit but can't be
+  trusted that the result still holds together — it drops a brace, mangles a string, or rewrites more
+  than you asked. So the model only proposes new file content and Go disposes: it computes a
+  deterministic per-file diff (an LCS line diff, so a model that quietly touched an unrelated line is
+  visible), and for the file types it can parse — Go via `go/format.Source`, JSON, YAML — it re-parses
+  the rewrite and, if the codemod produced something that no longer parses, **rejects the change and
+  keeps the original**. A migration must never leave a file worse than it found it. It's all
+  in-process (no disk writes, no repo touched); you get the rewritten content and diffs to apply
+  yourself. Wired into the orchestrator's new `migrate` route, with a keyword fallback for
+  codemod / rename-across / replace-deprecated requests.
 - **2026-07-28** — added **scaffold-agent**: the build stage of the SDLC suite — it turns a spec into
   a runnable project skeleton **in any language or framework** (Python/FastAPI, Node/Express, Go/GoFr,
   Rust, … — name the stack or let the model infer it), the repetitive first hour of a new service done
