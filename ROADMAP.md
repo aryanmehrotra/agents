@@ -19,6 +19,7 @@ auth, rate-limiting and resilience for free.
 - **extraction-agent** — unstructured text → structured, typed JSON against a caller-declared schema, validated deterministically in Go
 - **local-rag-agent** — 100% on-device RAG: llama.cpp in-process (Kronk) for embeddings + chat, SurrealDB vectors, exposed through GoFr as a custom `ai.Model`
 - **scheduler-agent** — plans and fires tasks: natural language → scheduled webhook, with an SSRF guardrail on the outbound URL at both schedule- and fire-time
+- **workflow-agent** — turns one goal into a multi-step workflow across the fleet: plans ordered sub-tasks and dispatches each through the orchestrator hub, threading outputs — composing any agents without hard-coding a single peer
 
 ## Planned agents — the software development lifecycle
 
@@ -74,6 +75,19 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
   through the same deterministic SSRF guardrail `research-agent` uses — refused at scheduling time
   (never even queued) and re-checked immediately before it fires. Wired into the orchestrator's new
   `schedule` route, with a keyword fallback for remind/reminder/schedule/webhook/cron requests.
+- **2026-07-28** — added **workflow-agent**: the composition layer. It turns one high-level goal into
+  a multi-step workflow across the whole fleet — its LLM breaks the goal into ordered sub-tasks, and it
+  dispatches each one through the **orchestrator hub** (the same `/assistant` route that routes any
+  query to the right specialist), threading each step's output into the next and synthesising a final
+  answer. The point is that it stays generic: it hard-codes **no peer** — it knows only the orchestrator
+  (`ORCHESTRATOR_URL`), and the orchestrator already knows how to reach every agent, so add/remove
+  agents and existing workflows keep working. The model *proposes* the plan; a deterministic Go
+  guardrail *disposes* — a plan must be a JSON array of 1..6 non-empty tasks or it's refused before any
+  step runs, one failing step doesn't abort the workflow, and cross-step context is bounded. Every hop
+  is a resilient GoFr HTTP call, so a whole workflow is one distributed trace. Composing agents into
+  plan-and-execute pipelines is the shift from single-shot chat to agents that carry out multi-step
+  work — "research this link and summarise it," "find the top rep and schedule a note" become
+  research→summarize and sql→schedule with no per-pair glue.
 - **2026-07-27** — added **extraction-agent**: turns unstructured text into structured, typed JSON
   against a caller-declared schema (each field a name + type — `string`, `integer`, `number`,
   `boolean`, `date`, or a `<type>[]` list). Structured extraction / "structured output" — parsing
