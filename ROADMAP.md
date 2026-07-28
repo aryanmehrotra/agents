@@ -20,6 +20,7 @@ auth, rate-limiting and resilience for free.
 - **local-rag-agent** — 100% on-device RAG: llama.cpp in-process (Kronk) for embeddings + chat, SurrealDB vectors, exposed through GoFr as a custom `ai.Model`
 - **scheduler-agent** — plans and fires tasks: natural language → scheduled webhook, with an SSRF guardrail on the outbound URL at both schedule- and fire-time
 - **workflow-agent** — turns one goal into a multi-step workflow across the fleet: plans ordered sub-tasks and dispatches each through the orchestrator hub, threading outputs — composing any agents without hard-coding a single peer
+- **spec-agent** — turns a raw ticket/issue into a structured engineering spec (scope, testable acceptance criteria, risks, task breakdown), normalized deterministically in Go and gated on a real spec before it's called complete
 
 ## Planned agents — the software development lifecycle
 
@@ -30,7 +31,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 (`code-review-agent` already covers the review step.)
 
 **Plan & design**
-- [ ] **spec-agent** — turn a ticket/issue into a structured spec (scope, acceptance criteria, risks) plus a task breakdown
+- [x] **spec-agent** — turn a ticket/issue into a structured spec (scope, acceptance criteria, risks) plus a task breakdown ✅ *shipped*
 - [ ] **estimation-agent** — size the work from that spec and the repo's own history
 
 **Build**
@@ -61,6 +62,18 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **spec-agent**: the first stop in the SDLC suite — it turns a raw ticket or
+  issue into a structured engineering spec: a one-line summary, what's in and out of scope, testable
+  acceptance criteria, risks, a task breakdown, and the open questions that still block the work. This
+  is the stage where an LLM most reliably saves a human time (read the ticket, draft the shape, a
+  person edits) — but a spec is only useful if it's actually a spec, and a model asked for one will
+  happily return prose, leave the acceptance criteria empty, or bury the tasks in a sentence. So the
+  model only *proposes*: every section is normalized deterministically in Go — blanks and duplicates
+  dropped, every task required to carry a title, lists capped — and the result is *gated* on a hard
+  minimum (a real summary, at least one acceptance criterion, at least one task) before it's called
+  complete, with an honest `incomplete_reasons` note about whatever the model failed to fill in. Wired
+  into the orchestrator's new `spec` route, with a keyword fallback for spec / acceptance-criteria /
+  task-breakdown / user-story requests.
 - **2026-07-28** — added **scheduler-agent**: turns a natural-language request ("in 10 minutes, ping
   my webhook to check the deploy") into a scheduled task and actually fires it — a background ticker
   goroutine fires due tasks independent of any single HTTP request. Task-planning/scheduling agents
