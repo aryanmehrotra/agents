@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"sort"
 	"strings"
 
 	"gofr.dev/pkg/gofr"
@@ -33,6 +34,7 @@ import (
 const (
 	maxInstruction = 4000
 	maxFiles       = 40
+	maxEntries     = 300 // hard bound on how many input entries we'll even look at
 	maxFileBytes   = 128 * 1024
 	maxDiffLines   = 1500 // above this (per side) we skip the detailed diff and just report counts
 	diffContext    = 2    // lines of unchanged context kept around each change in the diff
@@ -114,11 +116,13 @@ func migrate(c *gofr.Context) (any, error) {
 
 	rewrites := indexRewrites(raw["files"])
 	files, changed, rejected := applyRewrites(in.Files, originals, rewrites)
+	ignored := ignoredRewrites(originals, rewrites)
 
 	return map[string]any{
 		"instruction": instruction,
 		"files":       files,
 		"skipped":     skipped, // inputs dropped before the codemod (unsafe path / too big / dup)
+		"ignored":     ignored, // files the model returned that weren't in the input set (dropped)
 		"verify": map[string]any{
 			"files_changed":  changed,
 			"files_rejected": rejected, // rewrites that broke a parseable file → original kept
@@ -126,9 +130,26 @@ func migrate(c *gofr.Context) (any, error) {
 		},
 		"note": "the diff is computed deterministically in Go; for Go/JSON/YAML files a rewrite that no " +
 			"longer parses is rejected and the original is kept, so a codemod never corrupts a file. " +
-			"In-process only — nothing is written to disk and no repo is touched.",
+			"Only files from the input set are touched. In-process only — nothing is written to disk.",
 		"complete": changed > 0 && rejected == 0,
 	}, nil
+}
+
+// ignoredRewrites lists paths the model returned that weren't in the input set — a file it tried to
+// create or rename. A codemod only edits files it was given, so these are dropped; reporting them
+// (rather than silently discarding) keeps the model honest. Sorted for a stable response.
+func ignoredRewrites(originals, rewrites map[string]string) []string {
+	out := []string{}
+
+	for p := range rewrites {
+		if _, ok := originals[p]; !ok {
+			out = append(out, p)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // collectFiles validates the input paths and de-dupes them, returning a path→content map of the files
@@ -138,9 +159,8 @@ func collectFiles(in []inFile) (originals map[string]string, skipped []map[strin
 	skipped = []map[string]string{}
 
 	for i, f := range in {
-		if i >= maxFiles {
-			skipped = append(skipped, map[string]string{"path": f.Path, "reason": "exceeds file cap"})
-			continue
+		if i >= maxEntries {
+			break
 		}
 
 		clean, reason := safePath(f.Path)
@@ -156,6 +176,11 @@ func collectFiles(in []inFile) (originals map[string]string, skipped []map[strin
 
 		if len(f.Content) > maxFileBytes {
 			skipped = append(skipped, map[string]string{"path": clean, "reason": "file too large"})
+			continue
+		}
+
+		if len(originals) >= maxFiles { // cap on ACCEPTED files, not input position
+			skipped = append(skipped, map[string]string{"path": clean, "reason": "exceeds file cap"})
 			continue
 		}
 

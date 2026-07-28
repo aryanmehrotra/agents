@@ -50,7 +50,14 @@ flowchart LR
   back `rejected: true` with the reason and its **original content** — the codemod is refused for that
   file. Files in a language we can't parse here are diffed and applied but marked `checked: false`.
 - **Path safety** — every input path must be relative and in-root; absolute/traversal paths are
-  skipped. File count and per-file size are capped.
+  skipped. File count and per-file size are capped. Only files from the input set are touched; a file
+  the model tries to invent or rename is reported under `ignored`, never written.
+
+> **What "verified" means here:** the check is **parse-level**, not a full type-check or build. It
+> catches the common failure — the model corrupting a file (a dropped brace, a mangled string) — but a
+> rewrite that parses yet is type-broken, or a rename that misses a call site in a file you didn't
+> supply, won't be caught. Give it the files that need to change together, and treat it as "the edit is
+> syntactically sound," not "the project still compiles."
 
 ## Run
 

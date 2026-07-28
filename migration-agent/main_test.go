@@ -123,6 +123,33 @@ func TestCollectFiles(t *testing.T) {
 	}
 }
 
+// TestCollectFilesCap confirms the file cap is on ACCEPTED files, not input position: a valid file
+// after many skipped (invalid) entries must still be accepted.
+func TestCollectFilesCap(t *testing.T) {
+	in := []inFile{}
+	for i := 0; i < maxFiles+5; i++ {
+		in = append(in, inFile{Path: "/abs/skip.go", Content: "x"}) // all rejected (absolute)
+	}
+
+	in = append(in, inFile{Path: "real.go", Content: "package x"})
+
+	originals, _ := collectFiles(in)
+	if _, ok := originals["real.go"]; !ok {
+		t.Error("a valid file after many skipped entries must still be accepted (cap is on accepted count)")
+	}
+}
+
+// TestIgnoredRewrites reports model-returned paths that weren't in the input set, sorted.
+func TestIgnoredRewrites(t *testing.T) {
+	ig := ignoredRewrites(
+		map[string]string{"a.go": ""},
+		map[string]string{"a.go": "x", "z.go": "w", "new.go": "y"},
+	)
+	if len(ig) != 2 || ig[0] != "new.go" || ig[1] != "z.go" {
+		t.Errorf("ignoredRewrites = %v, want [new.go z.go]", ig)
+	}
+}
+
 // TestSafePath rejects traversal/absolute paths (no extension policy — codemods touch any source).
 func TestSafePath(t *testing.T) {
 	if _, r := safePath("pkg/handler.go"); r != "" {
