@@ -288,7 +288,9 @@ func keywordRoute(query string) string {
 		return "localdocs"
 	case containsAny(q, "remind", "reminder", "schedule", "webhook", "cron job", "fire a task", "notify me later"):
 		return "schedule"
-	case containsAny(q, "estimate", "how long will", "how long would", "story points", "story-points", "how many points", "t-shirt size", "size this work", "effort estimate"):
+	case containsAny(q, "story points", "story-points", "how many points", "t-shirt size", "size this work",
+		"effort estimate", "estimate the effort", "estimate how long", "give an estimate", "rough estimate",
+		"how long to build", "how long will it take to build"):
 		return "estimate"
 	case containsAny(q, "write a spec", "a spec for", "into a spec", "acceptance criteria", "task breakdown", "break down the work", "user story", "scope this"):
 		return "spec"

@@ -30,6 +30,14 @@ func TestKeywordRoute(t *testing.T) {
 		"remind me in 10 minutes to check the deploy":                                   "schedule",
 		"schedule a webhook to fire tomorrow at 9am":                                    "schedule",
 		"set a reminder for the standup":                                                "schedule",
+		"write a spec for the checkout flow":                                            "spec",
+		"turn this ticket into a spec with acceptance criteria":                         "spec",
+		"how many story points is the login work":                                       "estimate",
+		"give me a rough estimate to build oauth":                                       "estimate",
+		// Regression: an effort word embedded in a data/sql question must NOT hijack the
+		// estimate route — the greedy bare "estimate"/"how long will" keywords are gone.
+		"what is our estimated revenue this quarter": "data",
+		"how long will the summer sale run":          "data",
 	}
 
 	for query, want := range cases {
