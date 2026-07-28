@@ -18,3 +18,4 @@ scrape_configs:
           - "host.docker.internal:2131"  # extraction-agent
           - "host.docker.internal:2132"  # local-rag-agent
           - "host.docker.internal:2133"  # scheduler-agent
+          - "host.docker.internal:2134"  # workflow-agent
