@@ -15,6 +15,8 @@ loopback/private/link-local IPs (the classic `169.254.169.254` cloud-metadata SS
 that resolves to a blocked target is **refused at scheduling time** — it never sits in the queue
 waiting to fire.
 
+![A real scheduler session — a request scheduled and fired for real (HTTP 200), and a metadata-target request refused](docs/scheduler-demo.png)
+
 ## How it works
 
 ```mermaid
