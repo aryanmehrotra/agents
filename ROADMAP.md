@@ -20,9 +20,34 @@ auth, rate-limiting and resilience for free.
 - **local-rag-agent** — 100% on-device RAG: llama.cpp in-process (Kronk) for embeddings + chat, SurrealDB vectors, exposed through GoFr as a custom `ai.Model`
 - **scheduler-agent** — plans and fires tasks: natural language → scheduled webhook, with an SSRF guardrail on the outbound URL at both schedule- and fire-time
 
-## Planned agents
+## Planned agents — the software development lifecycle
 
-_(none currently — see "Toward a product" for what's next)_
+Next up: a suite that points the same spine (orchestrator + resilient HTTP + `ctx.LLM()` + built-in
+observability) at the work of **shipping software** — an agent for each stage of the SDLC. Every one
+keeps the repo's rule: the model *proposes*, a deterministic Go guardrail *disposes*, and the outcome
+is verified (it compiles, the tests pass, the check is real) before anything is trusted.
+(`code-review-agent` already covers the review step.)
+
+**Plan & design**
+- [ ] **spec-agent** — turn a ticket/issue into a structured spec (scope, acceptance criteria, risks) plus a task breakdown
+- [ ] **estimation-agent** — size the work from that spec and the repo's own history
+
+**Build**
+- [ ] **scaffold-agent** — generate a service/module skeleton (handlers, config, tests) from a spec and open it as a PR
+- [ ] **migration-agent** — apply a mechanical codemod across a repo in an isolated worktree, and verify it still builds
+
+**Test**
+- [ ] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept
+- [ ] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them
+
+**Review & release**
+- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
+- [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
+
+**Operate**
+- [ ] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces
+- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
 
 ## Toward a product
 
