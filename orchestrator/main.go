@@ -240,8 +240,8 @@ func classify(c *gofr.Context, query string) string {
 		"(scope, acceptance criteria, risks, a task breakdown)\n"+
 		"- estimate: size a piece of work — story points, effort, or how long it will take (a task "+
 		"list or a description to size)\n"+
-		"- scaffold: generate a new service/module code skeleton (boilerplate, starter files) from a "+
-		"description\n"+
+		"- scaffold: generate a new project/service code skeleton in any language or framework "+
+		"(boilerplate, starter files) from a description\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {

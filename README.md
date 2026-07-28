@@ -45,7 +45,7 @@ flowchart LR
         ORCH -->|"circuit breaker + retry"| SC["🗓️ scheduler-agent<br/>plans + fires tasks, SSRF-guarded"]
         ORCH -->|"circuit breaker + retry"| SP["📋 spec-agent<br/>ticket → structured spec"]
         ORCH -->|"circuit breaker + retry"| ES["📐 estimation-agent<br/>size work, Go does the math"]
-        ORCH -->|"circuit breaker + retry"| SB["🏗️ scaffold-agent<br/>spec → verified code skeleton"]
+        ORCH -->|"circuit breaker + retry"| SB["🏗️ scaffold-agent<br/>spec → skeleton, any stack"]
     end
 
     D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
@@ -100,7 +100,7 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🧵 **[`workflow-agent`](workflow-agent)** | Turn one goal into a multi-step workflow across the fleet — plan, dispatch each step to the hub, thread outputs | LLM plan + deterministic guardrail, **`PostWithHeaders`** dispatch to the orchestrator, one distributed trace |
 | 📋 **[`spec-agent`](spec-agent)** | Turn a ticket / issue into a structured engineering spec — scope, testable acceptance criteria, risks, task breakdown | structured `ctx.LLM().Chat` output + deterministic Go normalization, gated on a real spec (summary + criteria + tasks) |
 | 📐 **[`estimation-agent`](estimation-agent)** | Size a task breakdown into a point estimate + optimistic/likely/pessimistic range (and a duration, given velocity) | `ctx.LLM().Chat` for relative sizing only — **all arithmetic done in Go** from a fixed size→points table; the model's own total is ignored |
-| 🏗️ **[`scaffold-agent`](scaffold-agent)** | Generate a runnable GoFr service/module skeleton (main, handlers, go.mod, tests) from a one-line spec | `ctx.LLM().Chat` + **filesystem-path guardrail** (no traversal/escape) + **`go/format.Source` verification** of every `.go` file — in-process, no disk writes, no repo touched |
+| 🏗️ **[`scaffold-agent`](scaffold-agent)** | Generate a runnable project skeleton from a spec — **in any stack** (Python/FastAPI, Node/Express, Go/GoFr, …) | `ctx.LLM().Chat` + **filesystem-path guardrail** (no traversal/escape, binary/non-UTF-8 rejected) + **best-effort syntax check** (Go via `go/format`, JSON, YAML) — in-process, no repo touched |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 > Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
@@ -234,7 +234,7 @@ agents/
 ├── 🧵 workflow-agent/   one goal → multi-step plan, dispatched across the fleet         :8012
 ├── 📋 spec-agent/       ticket → structured spec (scope, criteria, risks, tasks)        :8013
 ├── 📐 estimation-agent/ task breakdown → point estimate + range, all math done in Go    :8014
-├── 🏗️ scaffold-agent/   spec → verified GoFr skeleton (paths guarded, .go parsed)       :8015
+├── 🏗️ scaffold-agent/   spec → project skeleton in any stack (paths guarded, syntax-checked) :8015
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088
