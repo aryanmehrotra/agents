@@ -1,53 +1,117 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
-// TestKeywordRoute verifies the deterministic fallback the orchestrator uses when the
-// LLM router is unavailable or answers unexpectedly, so routing stays correct regardless.
-func TestKeywordRoute(t *testing.T) {
+// TestRegistryWellFormed guards the single source of truth: unique routes, and every entry has the
+// fields needed to register, route to, and call the agent.
+func TestRegistryWellFormed(t *testing.T) {
+	seen := map[string]bool{}
+
+	for _, s := range registry {
+		if s.Route == "" || s.Service == "" || s.Path == "" || s.DefaultURL == "" || len(s.BodyFields) == 0 || s.Desc == "" {
+			t.Errorf("registry entry incomplete: %+v", s)
+		}
+
+		if seen[s.Route] {
+			t.Errorf("duplicate route %q in registry", s.Route)
+		}
+
+		seen[s.Route] = true
+	}
+
+	if !seen[defaultRoute] {
+		t.Errorf("defaultRoute %q is not in the registry", defaultRoute)
+	}
+}
+
+// TestRouterPromptDynamic proves the classifier prompt is generated from the registry — every agent's
+// route word appears, so adding an agent needs no prompt edit.
+func TestRouterPromptDynamic(t *testing.T) {
+	p := routerPrompt("do a thing")
+
+	for _, s := range registry {
+		if !strings.Contains(p, s.Route+": ") {
+			t.Errorf("router prompt is missing route %q — not generated from the registry", s.Route)
+		}
+	}
+
+	if !strings.Contains(p, "do a thing") {
+		t.Error("router prompt should include the query")
+	}
+}
+
+// TestMatchRoute maps a model reply to a registry entry (exact word, or contained), and rejects an
+// unknown answer so routing can fall back.
+func TestMatchRoute(t *testing.T) {
+	if s, ok := matchRoute("summarize"); !ok || s.Route != "summarize" {
+		t.Errorf("matchRoute(exact) = %v, %v", s, ok)
+	}
+
+	if s, ok := matchRoute("The best fit is `research`."); !ok || s.Route != "research" {
+		t.Errorf("matchRoute(contained) = %v, %v", s, ok)
+	}
+
+	if _, ok := matchRoute("i have no idea"); ok {
+		t.Error("matchRoute(unknown) should return ok=false")
+	}
+}
+
+// TestKeywordFallback is the deterministic fallback used only when the routing model is down — driven
+// entirely by the registry's per-agent keywords, with the default-route agent as the last resort.
+func TestKeywordFallback(t *testing.T) {
 	cases := map[string]string{
-		"please review this git diff for bugs":                                          "review",
-		"look at this patch and suggest changes":                                        "review",
-		"open a pull request for review":                                                "review",
-		"inspect this changeset":                                                        "review",
-		"how do I reset my VPN password":                                                "kb",
-		"what is the leave policy":                                                      "kb",
-		"how to configure the vpn":                                                      "kb",
-		"the app crashes with a panic on startup":                                       "support",
-		"login returns a 500 error, service outage":                                     "support",
-		"there is a bug and it is not working":                                          "support",
-		"what is our total shipped revenue":                                             "data",
-		"list all products in inventory":                                                "data",
-		"how many orders are pending":                                                   "data",
-		"run a sql query against the sales database":                                    "sql",
-		"which sales rep has the biggest pipeline":                                      "sql",
-		"compare https://example.com/a and https://example.com/b and cite your sources": "research",
-		"summarize http://news.example.com/article for me":                              "research",
-		"extract the invoice number and total from this text":                           "extract",
-		"parse this resume into structured fields":                                      "extract",
-		"what do my notes say about the onboarding process":                             "localdocs",
-		"search my documents for the refund policy":                                     "localdocs",
-		"remind me in 10 minutes to check the deploy":                                   "schedule",
-		"schedule a webhook to fire tomorrow at 9am":                                    "schedule",
-		"set a reminder for the standup":                                                "schedule",
-		"write a spec for the checkout flow":                                            "spec",
-		"turn this ticket into a spec with acceptance criteria":                         "spec",
-		"how many story points is the login work":                                       "estimate",
-		"give me a rough estimate to build oauth":                                       "estimate",
-		"scaffold a new orders service with a /orders endpoint":                         "scaffold",
-		"generate a module skeleton with boilerplate":                                   "scaffold",
-		"apply a codemod to rename getUser across the codebase":                         "migrate",
-		"replace deprecated ioutil calls in every file":                                 "migrate",
-		// Regression: an effort word embedded in a data/sql question must NOT hijack the
-		// estimate route — the greedy bare "estimate"/"how long will" keywords are gone.
+		"please review this git diff":                           "review",
+		"summarize this long thread":                            "summarize",
+		"compare https://a.com and https://b.com":               "research",
+		"remind me in 10 minutes to deploy":                     "schedule",
+		"apply a codemod to rename getUser across the codebase": "migrate",
+		"scaffold a new service skeleton":                       "scaffold",
+		"how many story points is this":                         "estimate",
+		"write a spec for the checkout flow":                    "spec",
+		"run a sql query on the sales database":                 "sql",
+		"how do I reset my vpn password":                        "kb",
+		"the app crashes with a panic":                          "support",
+		// No keyword → the default-route agent.
+		"what is our total shipped revenue": "data",
+		// Regression: an effort word embedded in a data question must NOT hijack estimate.
 		"what is our estimated revenue this quarter": "data",
-		"how long will the summer sale run":          "data",
 	}
 
 	for query, want := range cases {
-		if got := keywordRoute(query); got != want {
-			t.Errorf("keywordRoute(%q) = %q, want %q", query, got, want)
+		if got := keywordFallback(query).Route; got != want {
+			t.Errorf("keywordFallback(%q) = %q, want %q", query, got, want)
 		}
+	}
+}
+
+// TestBody fills each declared body field with the query — one field for most agents, two for the few
+// that need them.
+func TestBody(t *testing.T) {
+	sql := byRoute("sql")
+
+	var m map[string]string
+	_ = json.Unmarshal(body(sql, "top reps?"), &m)
+
+	if m["question"] != "top reps?" || len(m) != 1 {
+		t.Errorf("body(sql) = %v, want {question}", m)
+	}
+
+	support := byRoute("support")
+	_ = json.Unmarshal(body(support, "it broke"), &m)
+
+	if m["title"] != "it broke" || m["body"] != "it broke" {
+		t.Errorf("body(support) = %v, want {title, body}", m)
+	}
+}
+
+// TestEnvKey derives the URL override variable from the service name.
+func TestEnvKey(t *testing.T) {
+	if got := envKey("data-agent"); got != "DATA_AGENT_URL" {
+		t.Errorf("envKey = %q, want DATA_AGENT_URL", got)
 	}
 }
 
@@ -56,7 +120,7 @@ func TestContainsAny(t *testing.T) {
 		t.Error("containsAny should match a present substring")
 	}
 
-	if containsAny("hello world", "foo", "bar") {
+	if containsAny("hello", "foo", "bar") {
 		t.Error("containsAny should not match absent substrings")
 	}
 }
