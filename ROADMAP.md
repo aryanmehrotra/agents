@@ -24,6 +24,7 @@ auth, rate-limiting and resilience for free.
 - **estimation-agent** — sizes a task breakdown into a point estimate with an optimistic/likely/pessimistic range (and a duration, given velocity); the model only picks relative sizes and confidence, and every number is computed in Go from a fixed size→points table — the model's own arithmetic is never trusted
 - **scaffold-agent** — generates a runnable project skeleton from a spec **in any stack** (Python, Node, Go, Rust, …); the model proposes files and Go disposes — every path is sanitized against traversal/escape, binary/non-UTF-8 files are rejected, and files it can parse (Go/JSON/YAML) are syntax-checked, all in-process (no disk writes, no repo touched)
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
+- **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
 
 ## Planned agents — the software development lifecycle
 
@@ -42,7 +43,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [x] **migration-agent** — apply a mechanical codemod across files and verify it still parses ✅ *shipped* (operates on supplied file contents in-memory; a broken rewrite is rejected)
 
 **Test**
-- [ ] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept
+- [x] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept ✅ *shipped*
 - [ ] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them
 
 **Review & release**
@@ -65,6 +66,17 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **test-gen-agent**: the test stage of the SDLC suite — it writes unit tests
+  for a piece of code and, crucially, **doesn't trust what the model wrote**. For Go it writes the
+  generated test next to the source in a throwaway module and actually runs `go test` — fully offline
+  (`GOPROXY=off`, a hard timeout, no toolchain download, so the agent can't hang or reach the network)
+  — and reports whether it *built* and *passed*. A test that fails to compile or fails to pass is
+  returned with its output and marked **not kept**: you see exactly why, and you never get a green
+  result you can't trust (a test that doesn't compile, or passes vacuously, is worse than none). Other
+  languages get a generated test too, honestly marked "not executed" (only Go is run here). Nothing is
+  written to your repo; the temp module is created and removed per request. This is the first agent
+  added since the router rework — it plugged in as a **single capability-registry entry, with no
+  routing changes at all**. Wired into the orchestrator's `testgen` route.
 - **2026-07-28** — reworked **orchestrator routing** to be **registry-driven and LLM-first**. Routing
   used to run a hand-maintained keyword chain *first* and consult the model only for leftovers, over a
   hardcoded per-agent prompt — brittle, and every new agent meant editing both. Now a single
