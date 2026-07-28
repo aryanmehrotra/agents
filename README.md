@@ -107,31 +107,31 @@ proposes, Go disposes** — a deterministic guardrail validates every answer.
 over a [capability registry](orchestrator), with a `/capabilities` discovery endpoint.
 
 **🔎 Answer & retrieve**
-- **[`data-agent`](data-agent)** — ask your own service in natural language (MCP tool loop)
-- **[`sql-agent`](sql-agent)** — ask a database; guardrailed read-only SQL runs for real
-- **[`kb-agent`](kb-agent)** — IT/HR helpdesk grounded in your docs (RAG)
-- **[`research-agent`](research-agent)** — multi-source web research, cited, SSRF-guarded
-- **[`local-rag-agent`](local-rag-agent)** — 100% on-device RAG (llama.cpp + SurrealDB)
-- **[`support-agent`](support-agent)** — triage a ticket, draft a reply (SSE)
-- **[`memory-agent`](memory-agent)** — long-term memory over a stateless model (vector recall)
+- **[`data-agent`](agents/retrieval/data-agent)** — ask your own service in natural language (MCP tool loop)
+- **[`sql-agent`](agents/retrieval/sql-agent)** — ask a database; guardrailed read-only SQL runs for real
+- **[`kb-agent`](agents/retrieval/kb-agent)** — IT/HR helpdesk grounded in your docs (RAG)
+- **[`research-agent`](agents/retrieval/research-agent)** — multi-source web research, cited, SSRF-guarded
+- **[`local-rag-agent`](agents/retrieval/local-rag-agent)** — 100% on-device RAG (llama.cpp + SurrealDB)
+- **[`support-agent`](agents/retrieval/support-agent)** — triage a ticket, draft a reply (SSE)
+- **[`memory-agent`](agents/retrieval/memory-agent)** — long-term memory over a stateless model (vector recall)
 
 **✍️ Text → structured**
-- **[`summarizer-agent`](summarizer-agent)** — tl;dr + key points, structured & streamed
-- **[`pii-redaction-agent`](pii-redaction-agent)** — detect + redact PII, deterministically in Go
-- **[`extraction-agent`](extraction-agent)** — text → typed JSON against your schema
+- **[`summarizer-agent`](agents/text/summarizer-agent)** — tl;dr + key points, structured & streamed
+- **[`pii-redaction-agent`](agents/text/pii-redaction-agent)** — detect + redact PII, deterministically in Go
+- **[`extraction-agent`](agents/text/extraction-agent)** — text → typed JSON against your schema
 
 **🏗️ Build & ship — the SDLC suite**
-- **[`code-review-agent`](code-review-agent)** — review a diff, file/line-anchored
-- **[`spec-agent`](spec-agent)** — ticket → structured spec, gated on real criteria
-- **[`estimation-agent`](estimation-agent)** — size work; **all arithmetic done in Go**
-- **[`scaffold-agent`](scaffold-agent)** — spec → runnable skeleton, **any stack**
-- **[`migration-agent`](migration-agent)** — codemod across files, re-parsed so it can't corrupt
-- **[`test-gen-agent`](test-gen-agent)** — writes tests, then **compiles + runs** them
-- **[`flaky-test-agent`](flaky-test-agent)** — mines CI history for flaky tests, **detected in Go**
+- **[`code-review-agent`](agents/sdlc/code-review-agent)** — review a diff, file/line-anchored
+- **[`spec-agent`](agents/sdlc/spec-agent)** — ticket → structured spec, gated on real criteria
+- **[`estimation-agent`](agents/sdlc/estimation-agent)** — size work; **all arithmetic done in Go**
+- **[`scaffold-agent`](agents/sdlc/scaffold-agent)** — spec → runnable skeleton, **any stack**
+- **[`migration-agent`](agents/sdlc/migration-agent)** — codemod across files, re-parsed so it can't corrupt
+- **[`test-gen-agent`](agents/sdlc/test-gen-agent)** — writes tests, then **compiles + runs** them
+- **[`flaky-test-agent`](agents/sdlc/flaky-test-agent)** — mines CI history for flaky tests, **detected in Go**
 
 **🗓️ Automate & compose**
-- **[`scheduler-agent`](scheduler-agent)** — natural language → a task that actually fires later
-- **[`workflow-agent`](workflow-agent)** — one goal → a multi-step plan across the fleet
+- **[`scheduler-agent`](agents/automation/scheduler-agent)** — natural language → a task that actually fires later
+- **[`workflow-agent`](agents/automation/workflow-agent)** — one goal → a multi-step plan across the fleet
 
 > **Keyless via the shim**, except `memory-agent` (needs a real chat + embed model) and `local-rag-agent`
 > (on-device llama.cpp + SurrealDB) — both fully local, see their READMEs.
@@ -147,9 +147,9 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 # 1 · start the shim (leave it running)
 cd localtest/claude-openai-shim && go run .          # :8088
 
-# 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent scaffold-agent migration-agent test-gen-agent flaky-test-agent orchestrator workflow-agent; do
-  ( cd $a && cp configs/.env.local configs/.env && go run . ) &
+# 2 · start every specialist + the orchestrator (each its own module, in its own shell)
+for a in agents/retrieval/* agents/text/* agents/sdlc/* agents/automation/* orchestrator; do
+  ( cd "$a" && cp configs/.env.local configs/.env && go run . ) &
 done
 
 # 3 · ask the front door (API key required) — the LLM routes it for you
@@ -248,7 +248,18 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | 8008 | research-agent | | 8018 | flaky-test-agent |
 | | | | 8088 | claude-openai-shim |
 
-Each agent is its own directory + Go module; `observability/` holds the docker-compose stack.
+Each agent is **its own directory and Go module**, grouped by capability:
+
+```
+orchestrator/          front door (LLM router + /capabilities)
+agents/
+├── retrieval/         data · sql · kb · research · local-rag · support · memory
+├── text/              summarizer · pii-redaction · extraction
+├── sdlc/              code-review · spec · estimation · scaffold · migration · test-gen · flaky-test
+└── automation/        scheduler · workflow
+observability/         docker-compose: Jaeger + Prometheus + Grafana
+localtest/             the keyless claude-openai-shim
+```
 
 </details>
 
