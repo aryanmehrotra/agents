@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
 // to route it to the right specialist agent (data / support / kb / review / redact / sql /
-// research / schedule), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
+// research / schedule / spec), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
 // retry + rate limiter + health check, all from config. The front door itself is protected with
 // API-key auth.
 //
@@ -73,6 +73,12 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// spec-agent: same defaults — the breaker probes GoFr's default /.well-known/alive.
+	app.AddHTTPService("spec-agent", envOr("SPEC_AGENT_URL", "http://localhost:8013"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -131,6 +137,10 @@ var routes = map[string]specialist{
 	}},
 	"schedule": {"scheduler-agent", "schedule", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"request": q})
+		return b
+	}},
+	"spec": {"spec-agent", "spec", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"ticket": q})
 		return b
 	}},
 }
@@ -206,6 +216,8 @@ func classify(c *gofr.Context, query string) string {
 		"documents / notes (a fully on-device RAG knowledge base)\n"+
 		"- schedule: a request to remind, notify, or trigger a webhook at a future time or after a "+
 		"delay (\"in 10 minutes\", \"tomorrow at 9am\", \"remind me to...\")\n"+
+		"- spec: turn a ticket / feature request / user story into a structured engineering spec "+
+		"(scope, acceptance criteria, risks, a task breakdown)\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -233,6 +245,8 @@ func classify(c *gofr.Context, query string) string {
 		return "localdocs"
 	case strings.Contains(w, "schedule"):
 		return "schedule"
+	case strings.Contains(w, "spec"):
+		return "spec"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -260,6 +274,8 @@ func keywordRoute(query string) string {
 		return "localdocs"
 	case containsAny(q, "remind", "reminder", "schedule", "webhook", "cron job", "fire a task", "notify me later"):
 		return "schedule"
+	case containsAny(q, "write a spec", "a spec for", "into a spec", "acceptance criteria", "task breakdown", "break down the work", "user story", "scope this"):
+		return "spec"
 	case containsAny(q, "sql", "database", "query", "deals", "headcount", "sales rep", "pipeline"):
 		return "sql"
 	case containsAny(q, "vpn", "password", "leave", "policy", "reset", "how do i", "how to"):
