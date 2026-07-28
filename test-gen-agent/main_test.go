@@ -53,6 +53,11 @@ func TestClassifyGoTest(t *testing.T) {
 	if c, _ := classifyGoTest("FAIL\tcalc [build failed]\n", errors.New("exit 2")); c {
 		t.Error("[build failed] → compiled=false")
 	}
+
+	// A missing import offline (GOPROXY=off) fails to build before the test line.
+	if c, _ := classifyGoTest("subject_test.go:4:8: no required module provides package x\n", errors.New("exit 1")); c {
+		t.Error("missing-module offline → compiled=false")
+	}
 }
 
 // TestDetectLang honours an explicit language, infers Go from shape, else unknown.

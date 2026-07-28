@@ -41,10 +41,17 @@ flowchart LR
 - **Real execution (Go)** — the generated test is written with the source into a throwaway module and
   run with `go test`. `compiled` and `passed` come from the actual run, not a parse. `kept` = built and
   passed.
-- **Safe by construction** — `GOPROXY=off` (no downloads — a source that imports a third-party package
-  is reported as a build failure rather than triggering a fetch), `GOTOOLCHAIN=local`, `GOWORK=off`, a
-  30s timeout (a runaway test is killed and reported), and the temp dir is removed after each request.
-  So the agent stays in-process-safe: no repo writes, no network, no hang.
+- **Bounded execution** — `GOPROXY=off` (no downloads — a source that imports a third-party package is
+  reported as a build failure rather than triggering a fetch), `CGO_ENABLED=0`, `GOTOOLCHAIN=local`,
+  `GOWORK=off`, a 30s timeout that kills the **whole process group** (a runaway test can't outlive the
+  deadline as an orphan), and the temp dir is removed after each request. No repo writes, no network.
+
+> ⚠️ **Security — this agent runs model-generated code.** The offline/timeout controls bound *module
+> fetching* and *wall-time*, **not what the compiled test can do**: it runs with the agent's own
+> privileges and is **not sandboxed** (no container / seccomp / user isolation). A generated test could
+> touch the filesystem or spin CPU/memory for up to the timeout. **Run this only on source you trust**,
+> in a dev/CI context you control. True sandboxing (a container or microVM per run) is the right
+> production hardening and is a deliberate follow-up.
 - **Honest about the rest** — non-Go tests are generated but returned `executed:false`, because this
   service only runs Go. You still get the test; you just know it wasn't verified here.
 

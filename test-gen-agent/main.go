@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"gofr.dev/pkg/gofr"
@@ -135,8 +136,22 @@ func runGoTest(sourceContent, testContent string) (compiled, passed bool, output
 
 	cmd := exec.CommandContext(ctx, "go", "test", "./...")
 	cmd.Dir = dir
-	// Fully offline and self-contained: no module downloads, no toolchain switch, no parent workspace.
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "GOWORK=off")
+	// Fully offline and self-contained: no module downloads, no toolchain switch, no parent workspace,
+	// and no cgo (one less way for generated code to reach into C). NOTE: this bounds module-fetching
+	// and wall-time, NOT what the compiled test can do — it runs with this process's privileges and is
+	// NOT sandboxed. Only run this on source you trust. See the README's security note.
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "GOWORK=off", "CGO_ENABLED=0")
+	// The generated test runs as a child of `go test`; put it in its own process group and, on timeout,
+	// kill the whole GROUP so a runaway test binary can't outlive the deadline as an orphan.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 5 * time.Second
 
 	raw, runErr := cmd.CombinedOutput()
 	output = string(raw)
@@ -151,16 +166,21 @@ func runGoTest(sourceContent, testContent string) (compiled, passed bool, output
 }
 
 // classifyGoTest turns `go test` output + exit error into (compiled, passed). A build failure is
-// tagged "[build failed]" by the go tool, so its absence means the package compiled; a non-nil exit
-// error with a successful build means a test failed.
+// tagged "[build failed]" by the go tool; a missing import offline (GOPROXY=off) fails before the build
+// with a module/package-resolution error. If none of those appear, the package compiled and a non-nil
+// exit means a test failed.
 func classifyGoTest(output string, runErr error) (compiled, passed bool) {
 	if runErr == nil {
 		return true, true // built and every test passed
 	}
 
-	compiled = !strings.Contains(output, "[build failed]") && !strings.Contains(output, "build constraints exclude")
+	buildFail := strings.Contains(output, "[build failed]") ||
+		strings.Contains(output, "build constraints exclude") ||
+		strings.Contains(output, "no required module provides") ||
+		strings.Contains(output, "cannot find package") ||
+		strings.Contains(output, "cannot find module")
 
-	return compiled, false
+	return !buildFail, false
 }
 
 // detectLang uses an explicit language when given, else infers Go from the code's shape, else marks it
