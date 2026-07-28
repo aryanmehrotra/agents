@@ -24,57 +24,63 @@ Pushed default is **Groq** (free tier); OpenAI / Ollama / any OpenAI-compatible 
 ## 🗺️ Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     You["👤 You"] -->|"one query"| ORCH
-    You -->|"a multi-step goal"| WF["🧵 workflow-agent<br/>plan → dispatch each step"]
+    You -->|"a multi-step goal"| WF["🧵 workflow-agent · plan → dispatch each step"]
     WF -->|"one step at a time"| ORCH
+    ORCH["🧭 orchestrator · LLM router · /capabilities · rate-limit · API-key auth"]
 
-    subgraph System["GoFr 1.58 multi-agent system"]
+    ORCH -->|"circuit breaker + retry"| GA
+    ORCH --> GT
+    ORCH --> GB
+    ORCH --> GO
+
+    subgraph GA["🔎 Answer and retrieve"]
         direction TB
-        ORCH["🧭 orchestrator<br/>LLM router · rate-limit · API-key auth"]
-        ORCH -->|"circuit breaker + retry"| D["🛍️ data-agent<br/>MCP agent loop"]
-        ORCH -->|"circuit breaker + retry"| S["🎧 support-agent<br/>triage + SSE"]
-        ORCH -->|"circuit breaker + retry"| K["📚 kb-agent<br/>RAG helpdesk"]
-        ORCH -->|"circuit breaker + retry"| R["🔍 code-review-agent<br/>diff review"]
-        ORCH -->|"circuit breaker + retry"| P["🛡️ pii-redaction-agent<br/>detect + redact PII"]
-        ORCH -->|"circuit breaker + retry"| U["📝 summarizer-agent<br/>doc/thread summarization"]
-        ORCH -->|"circuit breaker + retry"| Q["🗄️ sql-agent<br/>NL → SQL, guardrailed"]
-        ORCH -->|"circuit breaker + retry"| W["🔍 research-agent<br/>multi-source, cited, SSRF-guarded"]
-        ORCH -->|"circuit breaker + retry"| X["🧩 extraction-agent<br/>text → typed JSON, schema-validated"]
-        ORCH -->|"circuit breaker + retry"| L["🦙 local-rag-agent<br/>on-device RAG (llama.cpp)"]
-        ORCH -->|"circuit breaker + retry"| SC["🗓️ scheduler-agent<br/>plans + fires tasks, SSRF-guarded"]
-        ORCH -->|"circuit breaker + retry"| SP["📋 spec-agent<br/>ticket → structured spec"]
-        ORCH -->|"circuit breaker + retry"| ES["📐 estimation-agent<br/>size work, Go does the math"]
-        ORCH -->|"circuit breaker + retry"| SB["🏗️ scaffold-agent<br/>spec → skeleton, any stack"]
-        ORCH -->|"circuit breaker + retry"| MG["🔧 migration-agent<br/>codemod + verify it still parses"]
+        D["🛍️ data-agent"]
+        Q["🗄️ sql-agent"]
+        K["📚 kb-agent"]
+        W["🔍 research-agent"]
+        L["🦙 local-rag-agent"]
+        S["🎧 support-agent"]
     end
 
-    D --> LLM["⚙️ GoFr LLM client<br/>traces · token metrics · health"]
-    S --> LLM
-    K --> LLM
-    R --> LLM
-    P --> LLM
-    U --> LLM
-    Q --> LLM
-    W --> LLM
-    X --> LLM
-    L --> LLM
-    SC --> LLM
-    SP --> LLM
-    ES --> LLM
-    SB --> LLM
-    MG --> LLM
-    ORCH --> LLM
+    subgraph GT["✍️ Text → structured"]
+        direction TB
+        U["📝 summarizer-agent"]
+        P["🛡️ pii-redaction-agent"]
+        X["🧩 extraction-agent"]
+    end
+
+    subgraph GB["🏗️ Build and ship · SDLC"]
+        direction TB
+        R["🔍 code-review-agent"]
+        SP["📋 spec-agent"]
+        ES["📐 estimation-agent"]
+        SB["🏗️ scaffold-agent"]
+        MG["🔧 migration-agent"]
+        TG["🧪 test-gen-agent"]
+    end
+
+    subgraph GO["🗓️ Automate"]
+        direction TB
+        SC["🗓️ scheduler-agent"]
+    end
+
+    GA --> LLM["⚙️ GoFr LLM client · traces · token metrics · health"]
+    GT --> LLM
+    GB --> LLM
+    GO --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
     Provider --> Ollama["Ollama · local"]
     Provider --> Shim["claude-CLI shim · keyless"]
 
-    System -.->|"traces + metrics"| OBS["📊 Jaeger · Prometheus · Grafana"]
+    LLM -.->|"traces + metrics"| OBS["📊 Jaeger · Prometheus · Grafana"]
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class ORCH,D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,WF agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -113,6 +119,7 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 | 📐 **[`estimation-agent`](estimation-agent)** | Size a task breakdown into a point estimate + optimistic/likely/pessimistic range (and a duration, given velocity) | `ctx.LLM().Chat` for relative sizing only — **all arithmetic done in Go** from a fixed size→points table; the model's own total is ignored |
 | 🏗️ **[`scaffold-agent`](scaffold-agent)** | Generate a runnable project skeleton from a spec — **in any stack** (Python/FastAPI, Node/Express, Go/GoFr, …) | `ctx.LLM().Chat` + **filesystem-path guardrail** (no traversal/escape, binary/non-UTF-8 rejected) + **best-effort syntax check** (Go via `go/format`, JSON, YAML) — in-process, no repo touched |
 | 🔧 **[`migration-agent`](migration-agent)** | Apply a mechanical codemod across files (rename, replace a deprecated API, add a header) — **any language** | `ctx.LLM().Chat` + **deterministic Go diff** per file + **re-parse verification** (a rewrite that breaks a Go/JSON/YAML file is rejected, original kept) — in-process, no repo touched |
+| 🧪 **[`test-gen-agent`](test-gen-agent)** | Write unit tests for code — and for Go, **compile and run them** to prove they pass before keeping them | `ctx.LLM().Chat` + **`go test` in an isolated, offline temp module** (a test that doesn't build-and-pass is returned but not kept) — no repo touched |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 > Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
@@ -135,7 +142,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent scaffold-agent migration-agent orchestrator workflow-agent; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent scaffold-agent migration-agent test-gen-agent orchestrator workflow-agent; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -248,6 +255,7 @@ agents/
 ├── 📐 estimation-agent/ task breakdown → point estimate + range, all math done in Go    :8014
 ├── 🏗️ scaffold-agent/   spec → project skeleton in any stack (paths guarded, syntax-checked) :8015
 ├── 🔧 migration-agent/  codemod across files → diff + re-parse verify, original kept if broken :8016
+├── 🧪 test-gen-agent/   write tests → for Go, compile + run them; kept only if they pass          :8017
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088
