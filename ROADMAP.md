@@ -25,6 +25,7 @@ auth, rate-limiting and resilience for free.
 - **scaffold-agent** — generates a runnable project skeleton from a spec **in any stack** (Python, Node, Go, Rust, …); the model proposes files and Go disposes — every path is sanitized against traversal/escape, binary/non-UTF-8 files are rejected, and files it can parse (Go/JSON/YAML) are syntax-checked, all in-process (no disk writes, no repo touched)
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 - **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
+- **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
 
 ## Planned agents — the software development lifecycle
 
@@ -44,7 +45,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Test**
 - [x] **test-gen-agent** — write/maintain unit tests for changed code, gated on "must compile and pass" before it's kept ✅ *shipped*
-- [ ] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them
+- [x] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them ✅ *shipped*
 
 **Review & release**
 - [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
@@ -66,6 +67,18 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
+  inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
+  lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
+  at least one fail, so the model never gets to decide what's flaky. Go tallies each test, ranks the
+  flaky ones by fail rate (with a flip count for how erratic they are), recommends quarantine, and
+  keeps **always-failing tests separate** — those are broken, not flaky, and shouldn't be quarantined.
+  The model's role is narrow and advisory: given the failure messages it annotates each
+  already-detected flaky test with a likely-cause category (timing/race, external-dependency, …) and a
+  one-line fix. If the model is unavailable, the detection, ranking and quarantine list still stand —
+  you just lose the annotations. Verified live on a 13-row history (TestSearch 0.67 and TestLogin 0.40
+  flagged flaky + quarantine, TestPayment separated as always-failing). Added as a single
+  capability-registry entry — no routing changes. Wired into the orchestrator's `flaky` route.
 - **2026-07-28** — added **test-gen-agent**: the test stage of the SDLC suite — it writes unit tests
   for a piece of code and, crucially, **doesn't trust what the model wrote**. For Go it writes the
   generated test next to the source in a throwaway module and actually runs `go test` — fully offline

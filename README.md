@@ -60,6 +60,7 @@ flowchart TB
         SB["🏗️ scaffold-agent"]
         MG["🔧 migration-agent"]
         TG["🧪 test-gen-agent"]
+        FK["🎲 flaky-test-agent"]
     end
 
     subgraph GO["🗓️ Automate"]
@@ -80,7 +81,7 @@ flowchart TB
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,WF,ORCH agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -99,7 +100,7 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 
 ## 🤖 The agents
 
-18 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
+19 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
 proposes, Go disposes** — a deterministic guardrail validates every answer.
 
 🧭 **[`orchestrator`](orchestrator)** — the front door. Routes any query to the right agent, **LLM-first**
@@ -126,6 +127,7 @@ over a [capability registry](orchestrator), with a `/capabilities` discovery end
 - **[`scaffold-agent`](scaffold-agent)** — spec → runnable skeleton, **any stack**
 - **[`migration-agent`](migration-agent)** — codemod across files, re-parsed so it can't corrupt
 - **[`test-gen-agent`](test-gen-agent)** — writes tests, then **compiles + runs** them
+- **[`flaky-test-agent`](flaky-test-agent)** — mines CI history for flaky tests, **detected in Go**
 
 **🗓️ Automate & compose**
 - **[`scheduler-agent`](scheduler-agent)** — natural language → a task that actually fires later
@@ -146,7 +148,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent scaffold-agent migration-agent test-gen-agent orchestrator workflow-agent; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent spec-agent estimation-agent scaffold-agent migration-agent test-gen-agent flaky-test-agent orchestrator workflow-agent; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -243,7 +245,8 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | 8005 | summarizer-agent | | 8015 | scaffold-agent |
 | 8006 | memory-agent | | 8016 | migration-agent |
 | 8007 | sql-agent | | 8017 | test-gen-agent |
-| 8008 | research-agent | | 8088 | claude-openai-shim |
+| 8008 | research-agent | | 8018 | flaky-test-agent |
+| | | | 8088 | claude-openai-shim |
 
 Each agent is its own directory + Go module; `observability/` holds the docker-compose stack.
 
