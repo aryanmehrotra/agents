@@ -25,7 +25,9 @@ Pushed default is **Groq** (free tier); OpenAI / Ollama / any OpenAI-compatible 
 
 ```mermaid
 flowchart LR
-    You["👤 You"] -->|"HTTP + API key"| ORCH
+    You["👤 You"] -->|"one query"| ORCH
+    You -->|"a multi-step goal"| WF["🧵 workflow-agent<br/>plan → dispatch each step"]
+    WF -->|"one step at a time"| ORCH
 
     subgraph System["GoFr 1.58 multi-agent system"]
         direction TB
@@ -64,8 +66,7 @@ flowchart LR
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class ORCH,D,S,K,R,P,U,Q,W,X agent;
-    class ORCH,D,S,K,R,P,U,Q,W,L,SC agent;
+    class ORCH,D,S,K,R,P,U,Q,W,X,L,SC,WF agent;
     class LLM core;
 ```
 
@@ -90,6 +91,7 @@ Because every hop is traced, one request is **one distributed trace across servi
 | 🧩 **[`extraction-agent`](extraction-agent)** | Turn unstructured text into structured, typed JSON against a declared schema | `ctx.LLM().Chat` + deterministic Go schema/type validation of the model's output |
 | 🦙 **[`local-rag-agent`](local-rag-agent)** | 100% on-device RAG — ingest, embed, retrieve and answer with citations, nothing leaves the machine | **custom `ai.Model`** (`app.AddLLM`) over **llama.cpp in-process (Kronk)** + **SurrealDB** vectors |
 | 🗓️ **[`scheduler-agent`](scheduler-agent)** | Turn a natural-language request into a task that actually fires later | background ticker goroutine + `ctx.LLM().Generate` + SSRF-guarded outbound webhook |
+| 🧵 **[`workflow-agent`](workflow-agent)** | Turn one goal into a multi-step workflow across the fleet — plan, dispatch each step to the hub, thread outputs | LLM plan + deterministic guardrail, **`PostWithHeaders`** dispatch to the orchestrator, one distributed trace |
 
 > Each agent is its **own Go module** — copy one out and run it standalone.
 > Two agents need more than the shim: `memory-agent` needs a **real** model (a stateless chat model +
@@ -112,7 +114,7 @@ No key. No Ollama. The shim answers via your local `claude` CLI.
 cd localtest/claude-openai-shim && go run .          # :8088
 
 # 2 · start the specialists + orchestrator (each in its own shell)
-for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent orchestrator; do
+for a in data-agent support-agent kb-agent code-review-agent pii-redaction-agent summarizer-agent sql-agent research-agent extraction-agent scheduler-agent orchestrator workflow-agent; do
   ( cd $a && cp configs/.env.local configs/.env && go run . ) &
 done
 
@@ -220,6 +222,7 @@ agents/
 ├── 🧩 extraction-agent/ unstructured text → typed JSON, schema-validated in Go        :8009
 ├── 🦙 local-rag-agent/  on-device RAG — llama.cpp (Kronk) + SurrealDB, all local       :8010
 ├── 🗓️ scheduler-agent/  NL request → scheduled task, fired by a background ticker      :8011
+├── 🧵 workflow-agent/   one goal → multi-step plan, dispatched across the fleet         :8012
 ├── 📊 observability/    docker-compose: Jaeger + Prometheus + Grafana
 └── 🧪 localtest/
     └── claude-openai-shim/   OpenAI-compatible endpoint via the claude CLI     :8088
