@@ -1,6 +1,6 @@
 // orchestrator — the multi-agent front door. It receives a user query, uses an LLM
 // to route it to the right specialist agent (data / support / kb / review / redact / sql /
-// research / schedule / spec / estimate), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
+// research / schedule / spec / estimate / scaffold), and calls that agent over a RESILIENT GoFr HTTP service: circuit breaker +
 // retry + rate limiter + health check, all from config. The front door itself is protected with
 // API-key auth.
 //
@@ -85,6 +85,12 @@ func main() {
 		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 	)
 
+	// scaffold-agent: same defaults — the breaker probes GoFr's default /.well-known/alive.
+	app.AddHTTPService("scaffold-agent", envOr("SCAFFOLD_AGENT_URL", "http://localhost:8015"),
+		&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+		&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
+	)
+
 	// Front-door protection: callers must send  X-Api-Key: agents-demo-key
 	app.EnableAPIKeyAuth(envOr("API_KEY", "agents-demo-key"))
 
@@ -151,6 +157,10 @@ var routes = map[string]specialist{
 	}},
 	"estimate": {"estimation-agent", "estimate", func(q string) []byte {
 		b, _ := json.Marshal(map[string]string{"text": q})
+		return b
+	}},
+	"scaffold": {"scaffold-agent", "scaffold", func(q string) []byte {
+		b, _ := json.Marshal(map[string]string{"spec": q})
 		return b
 	}},
 }
@@ -230,6 +240,8 @@ func classify(c *gofr.Context, query string) string {
 		"(scope, acceptance criteria, risks, a task breakdown)\n"+
 		"- estimate: size a piece of work — story points, effort, or how long it will take (a task "+
 		"list or a description to size)\n"+
+		"- scaffold: generate a new project/service code skeleton in any language or framework "+
+		"(boilerplate, starter files) from a description\n"+
 		"Reply with ONLY the single word.\n\nRequest: "+query,
 		ai.WithTemperature(0))
 	if err != nil {
@@ -261,6 +273,8 @@ func classify(c *gofr.Context, query string) string {
 		return "spec"
 	case strings.Contains(w, "estimate"):
 		return "estimate"
+	case strings.Contains(w, "scaffold"):
+		return "scaffold"
 	case strings.Contains(w, "data"):
 		return "data"
 	default:
@@ -288,6 +302,8 @@ func keywordRoute(query string) string {
 		return "localdocs"
 	case containsAny(q, "remind", "reminder", "schedule", "webhook", "cron job", "fire a task", "notify me later"):
 		return "schedule"
+	case containsAny(q, "scaffold", "skeleton", "boilerplate", "starter code", "stub out", "bootstrap a service", "new service skeleton", "generate a service", "generate a module"):
+		return "scaffold"
 	case containsAny(q, "story points", "story-points", "how many points", "t-shirt size", "size this work",
 		"effort estimate", "estimate the effort", "estimate how long", "give an estimate", "rough estimate",
 		"how long to build", "how long will it take to build"):
