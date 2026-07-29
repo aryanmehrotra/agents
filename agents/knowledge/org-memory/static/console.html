@@ -120,6 +120,9 @@
   .vcard{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:14px}
   .vcard .n{font-size:23px;font-weight:750;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
   .vcard .l{color:var(--muted);font-size:12px;margin-top:3px}
+  .actline{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .actresp{margin:4px 0 2px 8px;padding-left:10px;border-left:2px solid var(--line);font-size:12.5px;color:var(--muted)}
+  .actresp div{margin:2px 0}
   .weakbanner{background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);
     color:var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.5}
   /* Foundations tab */
@@ -281,11 +284,14 @@ async function api(path,opts){
 function csv(s){return (s||"").split(",").map(x=>x.trim()).filter(Boolean);}
 
 // ---- activity log (client-side; honours "no backend change") ----
-function log(kind,text){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
-  a.unshift({kind,text,t:new Date().toISOString()});localStorage.setItem(LOGKEY,JSON.stringify(a.slice(0,200)));renderAct();}
+function log(kind,text,resp){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
+  a.unshift({kind,text,resp:resp||null,t:new Date().toISOString()});localStorage.setItem(LOGKEY,JSON.stringify(a.slice(0,200)));renderAct();}
 function renderAct(){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
-  $("#act-out").innerHTML = a.length? a.map(e=>`<div class="act"><span class="t">${new Date(e.t).toLocaleString()}</span>
-    <span class="tag ${e.kind}">${e.kind}</span><span>${e.text}</span></div>`).join("")
+  $("#act-out").innerHTML = a.length? a.map(e=>{
+    const resp=(e.resp&&e.resp.length)?`<div class="actresp">${e.resp.map(r=>`<div>↳ ${esc(r)}</div>`).join("")}</div>`
+      :(e.kind==="ask"?`<div class="actresp muted">↳ nothing surfaced</div>`:"");
+    return `<div class="act"><div class="actline"><span class="t">${new Date(e.t).toLocaleString()}</span>
+    <span class="tag ${e.kind}">${e.kind}</span><span>${esc(e.text)}</span></div>${resp}</div>`;}).join("")
     : `<div class="empty">No activity yet — <b>Teach</b> a decision to start.</div>`;}
 
 // ---- tabs ----
@@ -299,11 +305,13 @@ if(localStorage.getItem("orgmem.guide")==="hidden")$("#guide").classList.add("hi
 // ---- ASK / recall ----
 $("#ask-btn").onclick=async()=>{
   const text=$("#ask-text").value.trim(); if(!text)return toast("Type what you're working on");
-  const ctx=[...csv($("#ask-scope").value),text].join(",");
+  const scope=csv($("#ask-scope").value).join(",");   // WHERE/WHO facets — matched, not embedded
+  const url="/recall?q="+encodeURIComponent(text)+(scope?"&scope="+encodeURIComponent(scope):"");
   $("#ask-out").innerHTML=`<div class="empty">thinking…</div>`;
   try{
-    const j=await api("/recall?context="+encodeURIComponent(ctx));
-    log("ask",`asked: “${text.slice(0,60)}” → ${j.count} surfaced`);
+    const j=await api(url);
+    const resp=(j.items||[]).map(it=>it.decision.what).slice(0,3);
+    log("ask",`asked: “${text.slice(0,50)}” → ${j.count} surfaced${j.weak?" ⚠︎weak":""}`,resp);
     if(!j.items||!j.items.length){$("#ask-out").innerHTML=
       `<div class="empty"><b>Nothing relevant.</b><br>That's a valid answer — irrelevant context only hurts. Nothing was injected.</div>`;return;}
     const banner=j.weak?`<div class="weakbanner">⚠️ <b>Weak match</b> — top cosine ${(j.top_similarity??0).toFixed(3)} barely clears the floor. These are <b>loosely related</b>, not a confident answer. Try rephrasing as a decision question (“why did we…”, “should we…”).</div>`:"";

@@ -125,8 +125,21 @@ func envOr(key, def string) string {
 // recallHandler (GET → MCP tool `recall_decisions`): returns the few prior decisions that apply to a
 // context — or nothing. Params: context=a,b,c (or scope=...), plus optional person/team for scoped config.
 func recallHandler(ctx *gofr.Context) (any, error) {
+	// Distinct input paths (so callers don't cram everything into one param):
+	//   q       = the free-text question (what you're working on)      → embedded
+	//   scope   = comma-separated scope tags (repo:x, service:y)        → matched, not embedded
+	//   author  = a person facet (WHO), a shorthand for scope author:…  → matched
+	//   context = legacy catch-all (still accepted; split into tag/text internally)
 	q := splitCSV(ctx.Param("context"))
 	q = append(q, splitCSV(ctx.Param("scope"))...)
+
+	if question := strings.TrimSpace(ctx.Param("q")); question != "" {
+		q = append(q, question)
+	}
+
+	if a := strings.TrimSpace(ctx.Param("author")); a != "" {
+		q = append(q, "author:"+a)
+	}
 
 	var chain []string
 	if p := strings.TrimSpace(ctx.Param("person")); p != "" {
