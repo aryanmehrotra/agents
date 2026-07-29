@@ -120,6 +120,8 @@
   .vcard{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:14px}
   .vcard .n{font-size:23px;font-weight:750;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
   .vcard .l{color:var(--muted);font-size:12px;margin-top:3px}
+  .weakbanner{background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);
+    color:var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.5}
   /* Foundations tab */
   .rbar{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
   .rtitle{font-size:16px;font-weight:650}
@@ -304,10 +306,11 @@ $("#ask-btn").onclick=async()=>{
     log("ask",`asked: “${text.slice(0,60)}” → ${j.count} surfaced`);
     if(!j.items||!j.items.length){$("#ask-out").innerHTML=
       `<div class="empty"><b>Nothing relevant.</b><br>That's a valid answer — irrelevant context only hurts. Nothing was injected.</div>`;return;}
-    $("#ask-out").innerHTML=j.items.map(it=>{
+    const banner=j.weak?`<div class="weakbanner">⚠️ <b>Weak match</b> — top cosine ${(j.top_similarity??0).toFixed(3)} barely clears the floor. These are <b>loosely related</b>, not a confident answer. Try rephrasing as a decision question (“why did we…”, “should we…”).</div>`:"";
+    $("#ask-out").innerHTML=banner+j.items.map(it=>{
       const d=it.decision, sc=(d.scope||[]).map(s=>`<span class="chip">${s}</span>`).join("");
       return `<div class="result" data-id="${d.id}">
-        <div class="top"><span class="score">${(it.score).toFixed(2)}</span><span class="what">${esc(d.what)}</span></div>
+        <div class="top"><span class="score" title="raw cosine similarity to your query">cos ${(it.similarity??0).toFixed(3)}</span><span class="score" title="composite rank score" style="opacity:.7">rank ${(it.score).toFixed(2)}</span><span class="what">${esc(d.what)}</span></div>
         ${d.why?`<div class="why">${esc(d.why)}</div>`:""}
         <div class="chips">${sc}${d.provenance?`<span class="chip">by ${esc(d.provenance)}</span>`:""}</div>
         <div class="fb">
