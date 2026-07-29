@@ -157,18 +157,27 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 	cset := contextSet(tagParts)
 	en.expandAncestors(cset) // hierarchy inheritance: a child query also matches its ancestors' decisions
 
+	// SOFT context (encoding-specificity, not a hard wall): the current context is a retrieval PRIOR,
+	// not a filter. Every active decision is a candidate; a decision whose scope matches here gets a
+	// specificity boost in ranking (spec>0 → importance term), while an out-of-context decision can
+	// still surface if it's semantically relevant enough to clear the floor. This is why a decision
+	// made in one repo can still surface in another when it genuinely applies — but same-repo
+	// decisions are preferred. Hard scope-gating (the old behaviour) walled generalizable wisdom
+	// inside the repo it happened to be recorded in. Set retrieve.hard_scope=1 to restore filtering.
+	hardScope := en.cfg.F("retrieve.hard_scope", 0) > 0
+
 	var cands []scored
 
 	for _, d := range en.store.Active() {
 		ok, spec := scopeMatch(d.Scope, cset)
-		if !ok {
+		if hardScope && !ok {
 			continue
 		}
 
 		cands = append(cands, scored{
 			d:    d,
 			sim:  cosine(qvec, d.Embedding),
-			spec: spec,
+			spec: spec, // 0 when out of context → no context boost, but still eligible on relevance
 			st:   en.store.Stats(d.ID),
 		})
 	}
