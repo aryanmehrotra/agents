@@ -31,6 +31,7 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	wRec := cfg.F("rank.w_recency", 0.3, chain...)
 	wImp := cfg.F("rank.w_importance", 0.3, chain...)
 	wRet := cfg.F("rank.w_retention", 0.3, chain...)
+	wAuth := cfg.F("rank.w_authority", 0.3, chain...)
 	boost := cfg.F("feedback.boost_per_helpful", 0.1, chain...)
 	demote := cfg.F("feedback.demote_per_notrel", 0.1, chain...)
 
@@ -63,7 +64,8 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 		}
 
 		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
-		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + fb
+		auth := wAuth * authorityWeight(c.d.Scope, cfg, chain...)
+		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
 
 		rows = append(rows, row{
 			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
@@ -137,6 +139,30 @@ func meanStd(xs []float64) (mean, std float64) {
 	}
 
 	return mean, math.Sqrt(v / float64(len(xs)))
+}
+
+// authorityWeight scores a decision by the SENIORITY/authority of its author — a CTO's judgment
+// outranks a senior engineer's outranks a junior's when relevance is close. This is the
+// provenance/authority-weighting invariant (cf. EigenTrust: trust weighted by an externally-seeded
+// role, not self-asserted). Everything is Config (Gate #0 — nothing hardcoded): `role.<login>` maps a
+// person to a role; `authority.<role>` is that role's weight; unknown people fall back to the default
+// role/weight. A decision with no author tag (docs, seed) contributes no authority signal.
+func authorityWeight(scope []string, cfg *Config, chain ...string) float64 {
+	defRole := cfg.Str("authority.default_role", "sde2", chain...)
+	defWeight := cfg.F("authority."+defRole, 0.3, chain...)
+
+	for _, s := range scope {
+		if !strings.HasPrefix(s, "author:") {
+			continue
+		}
+
+		login := strings.TrimPrefix(s, "author:")
+		role := cfg.Str("role."+login, defRole, chain...)
+
+		return cfg.F("authority."+role, defWeight, chain...)
+	}
+
+	return 0
 }
 
 // recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.
