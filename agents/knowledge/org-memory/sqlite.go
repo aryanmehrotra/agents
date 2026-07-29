@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS stats(
   wrong INT DEFAULT 0, used INT DEFAULT 0);
 CREATE TABLE IF NOT EXISTS edges(a TEXT, b TEXT, kind TEXT, weight REAL);
 CREATE TABLE IF NOT EXISTS feedback(
-  seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT, signal TEXT, by_actor TEXT, note TEXT, ts TEXT);`)
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT, signal TEXT, by_actor TEXT, note TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS relations(child TEXT PRIMARY KEY, parent TEXT, status TEXT);`)
 
 	return err
 }
@@ -156,6 +157,34 @@ func (s *sqliteStore) Stats(id string) Stats {
 		Scan(&st.Helpful, &st.NotRelevant, &st.Wrong, &st.Used)
 
 	return st
+}
+
+func (s *sqliteStore) SetRelation(child, parent, status string) {
+	if child == "" {
+		return
+	}
+
+	_, _ = s.db.Exec(`INSERT INTO relations(child,parent,status) VALUES(?,?,?) `+
+		`ON CONFLICT(child) DO UPDATE SET parent=excluded.parent, status=excluded.status`, child, parent, status)
+}
+
+func (s *sqliteStore) Relations() []Relation {
+	rows, err := s.db.Query(`SELECT child,parent,status FROM relations`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []Relation
+
+	for rows.Next() {
+		var r Relation
+		if rows.Scan(&r.Child, &r.Parent, &r.Status) == nil {
+			out = append(out, r)
+		}
+	}
+
+	return out
 }
 
 // --- helpers ---

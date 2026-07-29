@@ -31,10 +31,17 @@ func main() {
 	app.EnableMCP()
 
 	app.GET("/recall", recallHandler)
+	app.GET("/decisions", decisionsHandler) // read-only: the whole memory, for the dashboard/brain view
 	app.POST("/capture", captureHandler)
 	app.POST("/feedback", feedbackHandler)
 	app.GET("/config", getConfigHandler)
 	app.POST("/config", setConfigHandler)
+
+	// Scope hierarchy (parent → child), persisted; recall inherits along confirmed relations.
+	app.GET("/hierarchy", hierarchyHandler)          // the tree + tags
+	app.POST("/hierarchy", setParentHandler)         // set a parent (confirm a relation)
+	app.POST("/hierarchy/propose", proposeHandler)   // generate proposals for the yes/no flow
+	app.POST("/hierarchy/confirm", confirmRelationHandler) // yes/no on a proposed relation
 
 	app.Run()
 }
@@ -109,6 +116,25 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 	}, nil
 }
 
+// decisionsHandler (GET /decisions): read-only snapshot of the whole memory + a light summary, for the
+// dashboard "brain" view. Embeddings are omitted (json:"-").
+func decisionsHandler(ctx *gofr.Context) (any, error) {
+	list := engine.List()
+
+	quarantined := 0
+	for _, v := range list {
+		if v.Decision.Quarantined {
+			quarantined++
+		}
+	}
+
+	return map[string]any{
+		"count":       len(list),
+		"quarantined": quarantined,
+		"decisions":   list,
+	}, nil
+}
+
 // captureHandler (POST /capture): record or reinforce a decision.
 func captureHandler(ctx *gofr.Context) (any, error) {
 	var in Decision
@@ -172,6 +198,51 @@ func setConfigHandler(ctx *gofr.Context) (any, error) {
 	}
 
 	return map[string]any{"ok": true, "key": in.Key, "value": in.Value, "scope": scope}, nil
+}
+
+// hierarchyHandler (GET /hierarchy): the persisted relations + scope tags in use, for the tree view.
+func hierarchyHandler(ctx *gofr.Context) (any, error) { return engine.Hierarchy(), nil }
+
+// setParentHandler (POST /hierarchy): set a confirmed parent→child relation (the user setting the tree).
+func setParentHandler(ctx *gofr.Context) (any, error) {
+	var in struct {
+		Child  string `json:"child"`
+		Parent string `json:"parent"`
+	}
+
+	if err := ctx.Bind(&in); err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(in.Child) == "" {
+		return map[string]any{"error": "`child` is required"}, nil
+	}
+
+	engine.SetParent(in.Child, in.Parent)
+
+	return map[string]any{"ok": true, "child": in.Child, "parent": in.Parent}, nil
+}
+
+// proposeHandler (POST /hierarchy/propose): generate parent proposals for tags without a relation.
+func proposeHandler(ctx *gofr.Context) (any, error) {
+	return map[string]any{"proposed": engine.Propose()}, nil
+}
+
+// confirmRelationHandler (POST /hierarchy/confirm): yes/no on a proposed relation.
+func confirmRelationHandler(ctx *gofr.Context) (any, error) {
+	var in struct {
+		Child  string `json:"child"`
+		Parent string `json:"parent"`
+		Accept bool   `json:"accept"`
+	}
+
+	if err := ctx.Bind(&in); err != nil {
+		return nil, err
+	}
+
+	engine.ConfirmRelation(in.Child, in.Parent, in.Accept)
+
+	return map[string]any{"ok": true}, nil
 }
 
 // seedConfig loads any ORGMEM_<KEY>=value env vars as knobs (KEY with __ → .), so a deployment can set
