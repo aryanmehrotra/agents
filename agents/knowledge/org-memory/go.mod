@@ -2,7 +2,10 @@ module github.com/aryanmehrotra/agents/agents/knowledge/org-memory
 
 go 1.26.3
 
-require gofr.dev v1.58.0
+require (
+	gofr.dev v1.58.0
+	modernc.org/sqlite v1.54.0
+)
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -98,5 +101,4 @@ require (
 	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.54.0 // indirect
 )

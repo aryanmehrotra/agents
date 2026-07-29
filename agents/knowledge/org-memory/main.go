@@ -17,10 +17,12 @@ var (
 func main() {
 	app := gofr.New()
 
-	// Zero-config local by default: an embedded, dependency-free store + a local deterministic
-	// embedder, so it runs offline with no API keys. Both are behind interfaces — set ORG_MEMORY_PATH
-	// for on-disk persistence, and swap in an LLM-backed embedder / sqlite-vec / Postgres anytime.
-	engine = NewEngine(mustStore(), newFakeEmbedder(), cfg)
+	// Store and embedder are both behind interfaces. Store: in-memory | JSON file (ORG_MEMORY_PATH) |
+	// embedded SQLite (ORG_MEMORY_DB) — zero infra either way. Embedder: REAL semantic embeddings via
+	// GoFr's embed LLM by default (Ollama nomic-embed-text, or point EMBED_* at your orchestrator's
+	// /v1/embeddings); explicit offline mode with ORGMEM_EMBED=local. No silent fallback — a down
+	// provider fails loudly instead of corrupting the store with mismatched vectors.
+	engine = NewEngine(mustStore(), chooseEmbedder(), cfg)
 
 	seedConfig(cfg)
 
@@ -37,8 +39,15 @@ func main() {
 	app.Run()
 }
 
-// mustStore picks on-disk persistence when ORG_MEMORY_PATH is set, else in-memory.
+// mustStore picks the backing store: embedded SQLite (ORG_MEMORY_DB) → JSON file (ORG_MEMORY_PATH) →
+// in-memory. All behind the same Store interface; all zero-infra.
 func mustStore() Store {
+	if db := strings.TrimSpace(os.Getenv("ORG_MEMORY_DB")); db != "" {
+		if s, err := newSQLiteStore(db); err == nil {
+			return s
+		}
+	}
+
 	if p := strings.TrimSpace(os.Getenv("ORG_MEMORY_PATH")); p != "" {
 		if fs, err := newFileStore(p); err == nil {
 			return fs
@@ -46,6 +55,31 @@ func mustStore() Store {
 	}
 
 	return newMemStore()
+}
+
+// chooseEmbedder wires embeddings. Explicit local mode (ORGMEM_EMBED=local) uses the deterministic,
+// dependency-free embedder for offline/dev. Otherwise REAL semantic embeddings via any OpenAI-
+// compatible /v1/embeddings endpoint — EMBED_BASE_URL defaults to a local Ollama (nomic-embed-text);
+// point it at your orchestrator or a hosted provider, with EMBED_API_KEY if needed. No silent
+// fallback: a down provider fails loudly rather than corrupting the store with mismatched vectors.
+func chooseEmbedder() Embedder {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ORGMEM_EMBED")), "local") {
+		return newFakeEmbedder()
+	}
+
+	return newHTTPEmbedder(
+		envOr("EMBED_BASE_URL", "http://localhost:11434/v1"),
+		envOr("EMBED_MODEL", "nomic-embed-text"),
+		os.Getenv("EMBED_API_KEY"),
+	)
+}
+
+func envOr(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+
+	return def
 }
 
 // recallHandler (GET → MCP tool `recall_decisions`): returns the few prior decisions that apply to a

@@ -2,3 +2,6 @@ org-memory
 *.tmp
 memory.json
 memory.json.tmp
+*.db
+*.db-wal
+*.db-shm

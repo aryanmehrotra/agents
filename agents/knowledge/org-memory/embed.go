@@ -8,11 +8,20 @@ import (
 	"unicode"
 )
 
-// Embedder turns text into a vector. It is an interface so tests inject a deterministic, offline
+// EmbedRole marks whether text is being embedded as a stored document or a search query. Real
+// embedders (e.g. nomic-embed-text) want asymmetric prefixes for the two; the local fake ignores it.
+type EmbedRole int
+
+const (
+	RoleDocument EmbedRole = iota // a decision being stored
+	RoleQuery                     // a recall query
+)
+
+// Embedder turns text into a vector. It is an interface so tests/offline runs inject a deterministic
 // fake and production wraps the LLM embedder (ctx.LLM("embed").Embed). Embedding is the ONLY model
 // dependency on the write path and is kept off the hot ranking path.
 type Embedder interface {
-	Embed(ctx context.Context, text string) ([]float32, error)
+	Embed(ctx context.Context, text string, role EmbedRole) ([]float32, error)
 }
 
 // fakeEmbedder is a deterministic, dependency-free embedder for tests and offline/local runs:
@@ -24,7 +33,7 @@ type fakeEmbedder struct{ dim int }
 // would show spurious similarity (a bag-of-words artifact, not real semantics). Deterministic.
 func newFakeEmbedder() fakeEmbedder { return fakeEmbedder{dim: 4096} }
 
-func (f fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
+func (f fakeEmbedder) Embed(_ context.Context, text string, _ EmbedRole) ([]float32, error) {
 	dim := f.dim
 	if dim <= 0 {
 		dim = 64
