@@ -207,9 +207,6 @@ type ValueStats struct {
 	Used             int     `json:"used"`
 	NotRelevant      int     `json:"not_relevant"`
 	Wrong            int     `json:"wrong"`
-	TokensInjected   int64   `json:"tokens_injected_est"`
-	TokensSaved      int64   `json:"tokens_saved_est"`
-	NetTokens        int64   `json:"net_tokens_est"`
 	PrecisionPct     float64 `json:"precision_pct"`
 	InjectNothingPct float64 `json:"inject_nothing_pct"`
 	Hot              int     `json:"hot"`      // decisions still retrievable (above the forget floor)
@@ -240,15 +237,9 @@ func (en *Engine) ValueStats() ValueStats {
 		}
 	}
 
-	perItem := int64(en.cfg.I("metrics.tokens_per_item", 45))
-	perSaved := int64(en.cfg.I("metrics.tokens_per_prevented", 2000))
-
 	recalls := atomic.LoadInt64(&en.recalls)
 	empty := atomic.LoadInt64(&en.recallsEmpty)
 	surf := atomic.LoadInt64(&en.surfaced)
-
-	injected := surf * perItem
-	saved := int64(h+u) * perSaved
 
 	prec := 0.0
 	if h+w > 0 {
@@ -268,7 +259,6 @@ func (en *Engine) ValueStats() ValueStats {
 	return ValueStats{
 		Decisions: len(act), Recalls: recalls, RecallsEmpty: empty, ItemsSurfaced: surf,
 		Helpful: h, Used: u, NotRelevant: nr, Wrong: w,
-		TokensInjected: injected, TokensSaved: saved, NetTokens: saved - injected,
 		PrecisionPct: prec, InjectNothingPct: emptyPct,
 		Hot: hot, Cold: cold, ColdPct: coldPct,
 	}

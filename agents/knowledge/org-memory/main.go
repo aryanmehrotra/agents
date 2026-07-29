@@ -68,8 +68,6 @@ func main() {
 		{"app_orgmem_recalls_total", "org-memory: recalls served"},
 		{"app_orgmem_recall_empty_total", "org-memory: recalls returning nothing (correct restraint)"},
 		{"app_orgmem_items_surfaced_total", "org-memory: decisions surfaced"},
-		{"app_orgmem_tokens_injected_est", "org-memory: estimated tokens injected"},
-		{"app_orgmem_net_tokens_saved_est", "org-memory: estimated NET tokens saved"},
 		{"app_orgmem_feedback_helpful", "org-memory: helpful feedback"},
 		{"app_orgmem_feedback_wrong", "org-memory: wrong feedback"},
 	} {
@@ -356,8 +354,6 @@ func publishMetrics(ctx *gofr.Context) {
 	m.SetGauge("app_orgmem_recalls_total", float64(s.Recalls))
 	m.SetGauge("app_orgmem_recall_empty_total", float64(s.RecallsEmpty))
 	m.SetGauge("app_orgmem_items_surfaced_total", float64(s.ItemsSurfaced))
-	m.SetGauge("app_orgmem_tokens_injected_est", float64(s.TokensInjected))
-	m.SetGauge("app_orgmem_net_tokens_saved_est", float64(s.NetTokens))
 	m.SetGauge("app_orgmem_feedback_helpful", float64(s.Helpful))
 	m.SetGauge("app_orgmem_feedback_wrong", float64(s.Wrong))
 }

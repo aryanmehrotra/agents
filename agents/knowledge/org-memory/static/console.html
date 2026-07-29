@@ -200,8 +200,6 @@
   <section class="card hide" data-panel="value">
     <div class="vhero"><div class="n" id="v-hero">—</div><div class="l" id="v-hero-l">—</div></div>
     <div class="vgrid" id="v-grid"></div>
-    <div class="vsub">Token ROI — <b>rough estimate, not a measured saving</b></div>
-    <div class="vgrid" id="v-tokens"></div>
     <div class="hint" id="v-note" style="margin-top:12px"></div>
   </section>
 
@@ -258,8 +256,6 @@
     <div class="knob"><div class="k"><b>Precision floor</b><br><span>How relevant before it surfaces (higher = stricter, more "nothing")</span></div><input id="cfg-retrieve.precision_floor" type="number" step="0.05" min="0" max="1"/></div>
     <div class="knob"><div class="k"><b>Top-K</b><br><span>Max decisions surfaced at once</span></div><input id="cfg-retrieve.top_k" type="number" step="1" min="1" max="20"/></div>
     <div class="knob"><div class="k"><b>Wrong → quarantine</b><br><span>How many "wrong" marks before it's pulled</span></div><input id="cfg-feedback.wrong_quarantine_at" type="number" step="1" min="1"/></div>
-    <div class="knob"><div class="k"><b>Tokens per surfaced item</b><br><span>Value metric: est. tokens each injected decision costs</span></div><input id="cfg-metrics.tokens_per_item" type="number" step="5" min="0"/></div>
-    <div class="knob"><div class="k"><b>Tokens saved per helpful hit</b><br><span>Value metric: est. tokens a prevented mistake would've cost</span></div><input id="cfg-metrics.tokens_per_prevented" type="number" step="100" min="0"/></div>
     <div style="margin-top:14px"><button class="btn" id="tune-btn">Save knobs</button> <button class="btn ghost" id="tune-reload">Reload current</button></div>
   </section>
 
@@ -352,7 +348,7 @@ $("#teach-btn").onclick=async()=>{
 };
 
 // ---- TUNE / config ----
-const CFG=["retrieve.precision_floor","retrieve.top_k","feedback.wrong_quarantine_at","metrics.tokens_per_item","metrics.tokens_per_prevented"];
+const CFG=["retrieve.precision_floor","retrieve.top_k","feedback.wrong_quarantine_at"];
 async function loadCfg(){for(const k of CFG){try{const j=await api("/config?key="+encodeURIComponent(k));
   if(j.value!=="")$("#cfg-"+CSS.escape(k)).value=j.value;}catch(e){}}}
 $("#tune-reload").onclick=loadCfg;
@@ -512,14 +508,7 @@ async function loadStats(){
       [s.helpful+" / "+s.wrong,"helpful / wrong feedback"],
     ];
     $("#v-grid").innerHTML=cards.map(c=>'<div class="vcard"><div class="n">'+c[0]+'</div><div class="l">'+c[1]+'</div></div>').join("");
-    // Token estimates: separated, honestly labeled, correct sign/colour (negative net = red, not green).
-    const net=Number(s.net_tokens_est);
-    $("#v-tokens").innerHTML=[
-      [Number(s.tokens_saved_est).toLocaleString(),"saved (est)",false],
-      [Number(s.tokens_injected_est).toLocaleString(),"injected / cost (est)",false],
-      [(net>=0?"+":"")+net.toLocaleString(),"net (est)",net<0],
-    ].map(c=>`<div class="vcard"><div class="n ${c[2]?'neg':''}">${c[0]}</div><div class="l">${c[1]}</div></div>`).join("");
-    $("#v-note").innerHTML='⚠️ The token figures are a <b>rough illustrative estimate</b> from two guessed constants (<b>Tune</b>: <code>metrics.tokens_per_item</code>, <code>metrics.tokens_per_prevented</code>) — <b>not a measured saving</b>. The savings side counts only explicit 👍 feedback while cost accrues on every surfaced item, so net reads negative until feedback builds up. A trustworthy value number needs A/B withholding (roadmap) — until then, trust the operational metrics above, not this.';
+    $("#v-note").innerHTML='Every number here is <b>measured, not estimated</b> — counts of what actually happened, and precision from real 👍/✗ feedback. No hypothetical token "savings": a trustworthy value figure needs an A/B withholding experiment, so until that exists we show nothing rather than a made-up number. Live Prometheus gauges <code>app_orgmem_*</code> scrape on the metrics port.';
   }catch(e){$("#v-grid").innerHTML='<div class="empty">⚠️ '+esc(e.message)+'</div>';}
 }
 
