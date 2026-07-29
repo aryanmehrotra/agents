@@ -40,9 +40,10 @@ type Stats struct {
 
 // RecalledItem is a ranked decision plus its rendered advice line.
 type RecalledItem struct {
-	Decision Decision `json:"decision"`
-	Score    float64  `json:"score"`
-	Guidance string   `json:"guidance"`
+	Decision   Decision `json:"decision"`
+	Score      float64  `json:"score"`      // composite rank score (relevance+recency+importance+retention+feedback)
+	Similarity float64  `json:"similarity"` // raw cosine relevance to the query, in [-1,1] — the semantic match
+	Guidance   string   `json:"guidance"`
 }
 
 // Relation is a parent→child link in the scope hierarchy, with a confirmation status. Confirmed

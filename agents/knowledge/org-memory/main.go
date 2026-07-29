@@ -144,10 +144,24 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 
 	publishMetrics(ctx)
 
+	// Weak-match signal: if the best cosine only just clears the floor, the whole set is "reaching" —
+	// loosely related, not a confident answer. Surface it so the caller can read the hedge.
+	var topSim float64
+	for _, it := range items {
+		if it.Similarity > topSim {
+			topSim = it.Similarity
+		}
+	}
+
+	floor := cfg.F("retrieve.precision_floor", 0.30)
+	weak := len(items) > 0 && topSim < floor+cfg.F("retrieve.weak_margin", 0.10)
+
 	return map[string]any{
-		"items": items,
-		"count": len(items),
-		"note":  "advisory prior decisions for this context; an empty result is valid and correct",
+		"items":          items,
+		"count":          len(items),
+		"top_similarity": round(topSim),
+		"weak":           weak,
+		"note":           "advisory prior decisions for this context; an empty result is valid and correct",
 	}, nil
 }
 

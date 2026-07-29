@@ -66,7 +66,7 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + fb
 
 		rows = append(rows, row{
-			item:  RecalledItem{Decision: c.d, Score: round(score), Guidance: render(c.d)},
+			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
 			score: score,
 		})
 	}
