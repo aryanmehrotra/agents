@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"time"
 
 	"gofr.dev/pkg/gofr"
 )
@@ -53,6 +54,9 @@ func main() {
 
 	// Auto-calibration — set the relevance floor from the corpus itself (no hand-picked number).
 	app.POST("/calibrate", calibrateHandler)
+
+	// Consolidation / forgetting — memory-health report: what's still retrievable vs decaying out.
+	app.POST("/consolidate", consolidateHandler)
 
 	// Calibrate once at startup so a fresh deployment gets a corpus-appropriate floor automatically,
 	// unless a floor was explicitly seeded (ORGMEM_retrieve__precision_floor) or auto-calibration is
@@ -284,6 +288,24 @@ func autoCalibrateOnStart(c *Config) {
 	}
 
 	_, _, _ = engine.Calibrate(context.Background(), nil, c.F("retrieve.calibration_margin", 0.03))
+}
+
+// consolidateHandler (POST /consolidate): the memory-health report — how much of the store is still
+// retrievable (hot) vs decayed below the forget floor (cold), and the coldest items with a reason.
+// Read-only: it surfaces what runtime forgetting is already doing; it deletes nothing. Body optional:
+// {"limit": 20} caps how many coldest items come back.
+func consolidateHandler(ctx *gofr.Context) (any, error) {
+	var in struct {
+		Limit int `json:"limit"`
+	}
+
+	_ = ctx.Bind(&in)
+
+	if in.Limit <= 0 {
+		in.Limit = 20
+	}
+
+	return engine.Consolidate(time.Now(), in.Limit), nil
 }
 
 // researchHandler (GET /research): returns the raw RESEARCH.md so the console can render the

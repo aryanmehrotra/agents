@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,20 +212,32 @@ type ValueStats struct {
 	NetTokens        int64   `json:"net_tokens_est"`
 	PrecisionPct     float64 `json:"precision_pct"`
 	InjectNothingPct float64 `json:"inject_nothing_pct"`
+	Hot              int     `json:"hot"`      // decisions still retrievable (above the forget floor)
+	Cold             int     `json:"cold"`     // decayed below the floor — demoted, not deleted
+	ColdPct          float64 `json:"cold_pct"` // memory-health: share fading out of hot recall
 }
 
 // ValueStats computes the dashboard. Feedback tallies are read from the durable store; recall counters
 // are since-start.
 func (en *Engine) ValueStats() ValueStats {
 	act := en.store.Active()
+	now := time.Now()
+	forgetFloor := en.cfg.F("forget.floor", 0.03)
 
-	var h, u, nr, w int
+	var h, u, nr, w, hot, cold int
+
 	for _, d := range act {
 		st := en.store.Stats(d.ID)
 		h += st.Helpful
 		u += st.Used
 		nr += st.NotRelevant
 		w += st.Wrong
+
+		if retention(d, st, now, en.cfg) >= forgetFloor {
+			hot++
+		} else {
+			cold++
+		}
 	}
 
 	perItem := int64(en.cfg.I("metrics.tokens_per_item", 45))
@@ -247,11 +260,17 @@ func (en *Engine) ValueStats() ValueStats {
 		emptyPct = 100 * float64(empty) / float64(recalls)
 	}
 
+	coldPct := 0.0
+	if len(act) > 0 {
+		coldPct = math.Round(float64(cold)/float64(len(act))*1000) / 10
+	}
+
 	return ValueStats{
 		Decisions: len(act), Recalls: recalls, RecallsEmpty: empty, ItemsSurfaced: surf,
 		Helpful: h, Used: u, NotRelevant: nr, Wrong: w,
 		TokensInjected: injected, TokensSaved: saved, NetTokens: saved - injected,
 		PrecisionPct: prec, InjectNothingPct: emptyPct,
+		Hot: hot, Cold: cold, ColdPct: coldPct,
 	}
 }
 

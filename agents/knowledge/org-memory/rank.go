@@ -30,10 +30,12 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	wRel := cfg.F("rank.w_relevance", 1.0, chain...)
 	wRec := cfg.F("rank.w_recency", 0.3, chain...)
 	wImp := cfg.F("rank.w_importance", 0.3, chain...)
+	wRet := cfg.F("rank.w_retention", 0.3, chain...)
 	boost := cfg.F("feedback.boost_per_helpful", 0.1, chain...)
 	demote := cfg.F("feedback.demote_per_notrel", 0.1, chain...)
 
 	floor := gateFloor(cands, cfg, chain...)
+	forgetFloor := cfg.F("forget.floor", 0.03, chain...)
 
 	now := time.Now()
 
@@ -53,8 +55,15 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 			continue // relevance gate → inject nothing when nothing is relevant enough
 		}
 
+		// Retrievability gate (forgetting): a decision decayed below the forget floor is demoted out
+		// of the hot recall set — kept in the store, never deleted, and revives if reinforced.
+		ret := retention(c.d, c.st, now, cfg, chain...)
+		if ret < forgetFloor {
+			continue
+		}
+
 		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
-		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + fb
+		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + fb
 
 		rows = append(rows, row{
 			item:  RecalledItem{Decision: c.d, Score: round(score), Guidance: render(c.d)},
