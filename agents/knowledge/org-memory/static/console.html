@@ -120,6 +120,29 @@
   .vcard{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:14px}
   .vcard .n{font-size:23px;font-weight:750;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
   .vcard .l{color:var(--muted);font-size:12px;margin-top:3px}
+  /* Foundations tab */
+  .rbar{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+  .rtitle{font-size:16px;font-weight:650}
+  .md{max-width:none;line-height:1.62;font-size:14.5px;color:var(--ink)}
+  .md h1{font-size:22px;margin:2px 0 6px;font-weight:700}
+  .md h2{font-size:16px;margin:26px 0 8px;padding-top:14px;border-top:1px solid var(--line);
+         color:var(--accent);letter-spacing:.2px}
+  .md h3{font-size:14px;margin:16px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .md p{margin:9px 0}
+  .md ul{margin:9px 0;padding-left:20px} .md li{margin:5px 0}
+  .md a{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 55%,transparent)}
+  .md a:hover{border-bottom-style:solid}
+  .md strong{font-weight:650}
+  .md code{background:var(--chip);padding:1.5px 6px;border-radius:5px;font-size:12.5px;
+           font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .md blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--accent);
+                 background:var(--panel2);border-radius:0 8px 8px 0;color:var(--ink)}
+  .md hr{border:0;border-top:1px solid var(--line);margin:20px 0}
+  .md .tablewrap{overflow-x:auto;margin:14px 0}
+  .md table{border-collapse:collapse;width:100%;font-size:13px}
+  .md th,.md td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  .md th{background:var(--chip);font-weight:600}
+  .md tbody tr:nth-child(even),.md tr:nth-child(even){background:color-mix(in srgb,var(--panel2) 60%,transparent)}
 </style>
 </head>
 <body>
@@ -149,9 +172,22 @@
     <button class="tab" data-tab="ask">Ask</button>
     <button class="tab" data-tab="teach">Teach</button>
     <button class="tab" data-tab="value">📈 Value</button>
+    <button class="tab" data-tab="research">📚 Foundations</button>
     <button class="tab" data-tab="tune">Tune</button>
     <button class="tab" data-tab="activity">Activity</button>
   </nav>
+
+  <!-- FOUNDATIONS -->
+  <section class="card hide" data-panel="research">
+    <div class="rbar">
+      <div>
+        <div class="rtitle">Research foundations</div>
+        <div class="hint">Every design choice, traced to a real, verified paper. Nothing here is hand-waved.</div>
+      </div>
+      <button class="btn ghost" id="r-refresh" style="margin-left:auto">↻</button>
+    </div>
+    <article id="research-body" class="md"><div class="empty">loading the papers…</div></article>
+  </section>
 
   <!-- VALUE -->
   <section class="card hide" data-panel="value">
@@ -253,7 +289,8 @@ function renderAct(){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
 // ---- tabs ----
 $$(".tab").forEach(b=>b.onclick=()=>{$$(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");
   $$("[data-panel]").forEach(p=>p.classList.toggle("hide",p.dataset.panel!==b.dataset.tab));
-  if(b.dataset.tab==="tune")loadCfg(); if(b.dataset.tab==="brain")loadBrain(); if(b.dataset.tab==="hier")loadHier(); if(b.dataset.tab==="value")loadStats();});
+  if(b.dataset.tab==="tune")loadCfg(); if(b.dataset.tab==="brain")loadBrain(); if(b.dataset.tab==="hier")loadHier(); if(b.dataset.tab==="value")loadStats(); if(b.dataset.tab==="research")loadResearch();});
+$("#r-refresh").onclick=()=>loadResearch(true);
 $("#dismiss").onclick=(e)=>{e.preventDefault();$("#guide").classList.add("hide");localStorage.setItem("orgmem.guide","hidden");};
 if(localStorage.getItem("orgmem.guide")==="hidden")$("#guide").classList.add("hide");
 
@@ -462,6 +499,56 @@ async function loadStats(){
     $("#v-grid").innerHTML=cards.map(c=>'<div class="vcard"><div class="n">'+c[0]+'</div><div class="l">'+c[1]+'</div></div>').join("");
     $("#v-note").innerHTML='Estimates use two knobs (edit in <b>Tune</b>): <code>metrics.tokens_per_item</code> injected per surfaced decision, and <code>metrics.tokens_per_prevented</code> saved per helpful hit. Live Prometheus gauges <code>app_orgmem_*</code> scrape on the metrics port → Grafana (your "push"). A rigorous causal lift needs A/B withholding (roadmap).';
   }catch(e){$("#v-grid").innerHTML='<div class="empty">⚠️ '+esc(e.message)+'</div>';}
+}
+
+// ---- FOUNDATIONS (renders RESEARCH.md served by the backend /research) ----
+let RESEARCH_CACHE=null;
+async function loadResearch(force){
+  const el=$("#research-body");
+  if(RESEARCH_CACHE&&!force){el.innerHTML=RESEARCH_CACHE;return;}
+  el.innerHTML='<div class="empty">loading the papers…</div>';
+  try{const r=await api("/research"); RESEARCH_CACHE=mdToHtml(r.markdown||""); el.innerHTML=RESEARCH_CACHE;}
+  catch(e){el.innerHTML='<div class="empty">⚠️ '+esc(e.message)+'</div>';}
+}
+// tiny, dependency-free markdown → HTML (source is our own trusted RESEARCH.md).
+function mdInline(s){
+  s=esc(s);
+  s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s=s.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>');
+  return s;
+}
+function mdToHtml(md){
+  const lines=md.replace(/\r/g,"").split("\n"); const out=[]; let i=0;
+  const cell=r=>r.replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+  while(i<lines.length){
+    const ln=lines[i];
+    if(/^\s*$/.test(ln)){i++;continue;}
+    let m;
+    if((m=ln.match(/^(#{1,3})\s+(.*)$/))){out.push(`<h${m[1].length}>${mdInline(m[2])}</h${m[1].length}>`);i++;continue;}
+    if(/^\s*---+\s*$/.test(ln)){out.push("<hr>");i++;continue;}
+    // table: header row followed by a |---|---| separator
+    if(ln.includes("|")&&i+1<lines.length&&/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i+1])&&lines[i+1].includes("-")){
+      const head=cell(ln); i+=2; const rows=[];
+      while(i<lines.length&&lines[i].includes("|")&&lines[i].trim()){rows.push(cell(lines[i]));i++;}
+      out.push('<div class="tablewrap"><table><thead><tr>'+head.map(h=>`<th>${mdInline(h)}</th>`).join("")+
+        '</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>`<td>${mdInline(c)}</td>`).join("")+'</tr>').join("")+
+        '</tbody></table></div>');
+      continue;
+    }
+    if(/^\s*[-*]\s+/.test(ln)){const items=[];
+      while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i])){items.push(mdInline(lines[i].replace(/^\s*[-*]\s+/,"")));i++;}
+      out.push("<ul>"+items.map(it=>`<li>${it}</li>`).join("")+"</ul>");continue;}
+    if(/^\s*>\s?/.test(ln)){const buf=[];
+      while(i<lines.length&&/^\s*>\s?/.test(lines[i])){buf.push(lines[i].replace(/^\s*>\s?/,""));i++;}
+      out.push("<blockquote>"+mdInline(buf.join(" "))+"</blockquote>");continue;}
+    // paragraph: gather until blank / block start
+    const para=[];
+    while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^(#{1,3}\s|\s*[-*]\s|\s*>|\s*---+\s*$)/.test(lines[i])){para.push(lines[i]);i++;}
+    out.push("<p>"+mdInline(para.join(" "))+"</p>");
+  }
+  return out.join("\n");
 }
 
 renderAct(); loadBrain(); ping(); setInterval(ping,5000);

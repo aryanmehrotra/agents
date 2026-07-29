@@ -72,6 +72,14 @@ func scopeMatch(decisionScope []string, context map[string]bool) (ok bool, speci
 	return true, len(tags)
 }
 
+// isScopeTag reports whether a string is a scope tag (key:value, no whitespace) rather than free-text
+// query prose. Scope tags are used for matching; prose is used for the embedding.
+func isScopeTag(s string) bool {
+	s = strings.TrimSpace(s)
+
+	return strings.Contains(s, ":") && !strings.ContainsAny(s, " \t")
+}
+
 // contextSet builds the lowercased tag set a recall runs against.
 func contextSet(list []string) map[string]bool {
 	set := map[string]bool{}

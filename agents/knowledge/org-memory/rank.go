@@ -16,21 +16,24 @@ type scored struct {
 }
 
 // rankAndFilter turns candidates into the few items worth surfacing. Two proven rules:
-//   - PRECISION FLOOR on relevance: only surface decisions whose semantic relevance clears a bar;
-//     if none clear it, return NOTHING — an empty result is valid and correct (irrelevant context
-//     measurably hurts an agent's output). The floor is a live Config knob.
+//   - RELEVANCE GATE: only surface decisions whose semantic relevance clears a bar; if none clear
+//     it, return NOTHING — an empty result is valid and correct (irrelevant context measurably hurts
+//     an agent's output). The bar is the MAX of two things: a fixed absolute floor (a safety
+//     backstop), and an ADAPTIVE floor that self-calibrates to the corpus — see gateFloor. The
+//     adaptive part is why nobody has to hand-pick a magic cosine number per deployment.
 //   - ORDER by a composite score (relevance + recency + scope-importance + feedback nudge), most
 //     relevant FIRST — because position matters ("lost in the middle": models attend to the ends).
 //
 // Feedback is a relevance nudge only (helpful/used boost, not_relevant demotes) — never correctness.
 func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem {
-	floor := cfg.F("retrieve.precision_floor", 0.30, chain...)
 	topK := cfg.I("retrieve.top_k", 3, chain...)
 	wRel := cfg.F("rank.w_relevance", 1.0, chain...)
 	wRec := cfg.F("rank.w_recency", 0.3, chain...)
 	wImp := cfg.F("rank.w_importance", 0.3, chain...)
 	boost := cfg.F("feedback.boost_per_helpful", 0.1, chain...)
 	demote := cfg.F("feedback.demote_per_notrel", 0.1, chain...)
+
+	floor := gateFloor(cands, cfg, chain...)
 
 	now := time.Now()
 
@@ -47,7 +50,7 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 		}
 
 		if c.sim < floor {
-			continue // relevance floor → inject nothing when nothing is relevant enough
+			continue // relevance gate → inject nothing when nothing is relevant enough
 		}
 
 		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
@@ -67,6 +70,64 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	}
 
 	return out
+}
+
+// gateFloor computes the relevance bar a candidate must clear. It is the MAX of:
+//   - an absolute floor (retrieve.precision_floor) — a fixed safety backstop, and
+//   - an ADAPTIVE floor: mean + z·stddev of THIS query's similarity distribution over the corpus.
+//
+// The adaptive term is the whole point of "auto-adapt": an absolute cosine threshold is
+// corpus-specific (0.60 fits one tight repo, nonsense for another). "Is this a standout for THIS
+// query, relative to the corpus's own spread?" transfers across corpora with no hand-tuning. For an
+// irrelevant prompt the scores are flat (no standout ⇒ nothing clears mean+z·σ ⇒ inject nothing);
+// for a real hit a few decisions spike into the right tail and clear it. z (retrieve.adaptive_z,
+// default 2.0) is a near-universal knob; set it ≤ 0 to disable adaptation and use the absolute floor
+// alone. Needs a minimum sample (retrieve.adaptive_min_n, default 8) for σ to mean anything.
+func gateFloor(cands []scored, cfg *Config, chain ...string) float64 {
+	floor := cfg.F("retrieve.precision_floor", 0.30, chain...)
+	z := cfg.F("retrieve.adaptive_z", 0, chain...)
+	minN := cfg.I("retrieve.adaptive_min_n", 8, chain...)
+
+	if z <= 0 {
+		return floor
+	}
+
+	sims := make([]float64, 0, len(cands))
+	for _, c := range cands {
+		if c.d.Quarantined || c.d.SupersededBy != "" {
+			continue // background = only surfaceable decisions
+		}
+
+		sims = append(sims, c.sim)
+	}
+
+	if len(sims) < minN {
+		return floor // too few to estimate a spread; fall back to the absolute floor
+	}
+
+	mean, sd := meanStd(sims)
+	if adaptive := mean + z*sd; adaptive > floor {
+		return adaptive
+	}
+
+	return floor
+}
+
+// meanStd returns the mean and population standard deviation of xs (len(xs) > 0 assumed by caller).
+func meanStd(xs []float64) (mean, std float64) {
+	for _, x := range xs {
+		mean += x
+	}
+
+	mean /= float64(len(xs))
+
+	var v float64
+	for _, x := range xs {
+		d := x - mean
+		v += d * d
+	}
+
+	return mean, math.Sqrt(v / float64(len(xs)))
 }
 
 // recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.

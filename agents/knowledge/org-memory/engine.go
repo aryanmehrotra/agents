@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -77,16 +78,83 @@ func (en *Engine) Capture(ctx context.Context, in Decision) (Decision, error) {
 	return d, nil
 }
 
+// defaultProbes are generic, deliberately OFF-TOPIC sentences used to measure a corpus's "noise
+// ceiling": the highest semantic similarity that irrelevant text reaches against this specific
+// memory. Real, relevant queries score above this ceiling; noise sits at or below it. They are
+// domain-neutral on purpose — override via retrieve.calibration_probes for a corpus where some of
+// these are actually on-topic (e.g. a travel or trivia knowledge base).
+var defaultProbes = []string{
+	"what is the capital of France",
+	"write a poem about cats",
+	"best pizza in New York",
+	"how tall is Mount Everest",
+	"who won the world cup",
+	"recipe for chocolate chip cookies",
+	"what time is sunset today",
+	"lyrics to a pop song",
+}
+
+// Calibrate auto-sets retrieve.precision_floor from the corpus itself, so nobody hand-picks a cosine
+// number. It embeds each off-topic probe, finds the max similarity any probe reaches against the
+// store (the noise ceiling), and sets the floor a small margin above it. This adapts per corpus: a
+// dense single-repo memory and a sprawling multi-team one get different, appropriate floors with no
+// human tuning. Returns the floor it set (and the measured ceiling). No-op-safe on an empty store.
+func (en *Engine) Calibrate(ctx context.Context, probes []string, margin float64) (floor, ceiling float64, err error) {
+	if len(probes) == 0 {
+		probes = defaultProbes
+	}
+
+	active := en.store.Active()
+	if len(active) == 0 {
+		return en.cfg.F("retrieve.precision_floor", 0.30), 0, nil // nothing to calibrate against
+	}
+
+	for _, p := range probes {
+		qvec, e := en.embed.Embed(ctx, p, RoleQuery)
+		if e != nil {
+			return 0, 0, e
+		}
+
+		for _, d := range active {
+			if s := cosine(qvec, d.Embedding); s > ceiling {
+				ceiling = s
+			}
+		}
+	}
+
+	floor = ceiling + margin
+	if floor > 0.99 {
+		floor = 0.99
+	}
+
+	en.cfg.Set("retrieve.precision_floor", strconv.FormatFloat(floor, 'f', 4, 64))
+
+	return floor, ceiling, nil
+}
+
 // Recall returns the few prior decisions worth surfacing for a context — or nothing. Dense cosine
 // over scope-matched, non-superseded candidates, then rankAndFilter (precision floor + ordering +
 // feedback nudge). The chain (person/team scopes) lets config knobs resolve most-specific-first.
 func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...string) ([]RecalledItem, error) {
-	qvec, err := en.embed.Embed(ctx, strings.Join(queryContext, " "), RoleQuery)
+	// Separate scope TAGS (key:value — used for matching) from free TEXT (used for the embedding).
+	// Mixing tags into the embedded text pollutes similarity: within one repo every query would look
+	// alike (dominated by "repo:x"), so unrelated prompts would still match. Embed the text only.
+	var textParts, tagParts []string
+
+	for _, s := range queryContext {
+		if isScopeTag(s) {
+			tagParts = append(tagParts, s)
+		} else if strings.TrimSpace(s) != "" {
+			textParts = append(textParts, s)
+		}
+	}
+
+	qvec, err := en.embed.Embed(ctx, strings.Join(textParts, " "), RoleQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	cset := contextSet(queryContext)
+	cset := contextSet(tagParts)
 	en.expandAncestors(cset) // hierarchy inheritance: a child query also matches its ancestors' decisions
 
 	var cands []scored
