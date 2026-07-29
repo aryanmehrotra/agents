@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strings"
 
@@ -45,6 +46,18 @@ func main() {
 
 	// Value metrics — the JSON dashboard + Prometheus gauges (scrape on METRICS_PORT → Grafana).
 	app.GET("/stats", statsHandler)
+
+	// Foundations — serves RESEARCH.md (the papers behind the design) to the console, so the "why"
+	// is one concrete source of truth, not duplicated into the UI.
+	app.GET("/research", researchHandler)
+
+	// Auto-calibration — set the relevance floor from the corpus itself (no hand-picked number).
+	app.POST("/calibrate", calibrateHandler)
+
+	// Calibrate once at startup so a fresh deployment gets a corpus-appropriate floor automatically,
+	// unless a floor was explicitly seeded (ORGMEM_retrieve__precision_floor) or auto-calibration is
+	// turned off (ORGMEM_AUTOCALIBRATE=off). Everything stays overridable live via POST /config.
+	autoCalibrateOnStart(cfg)
 
 	for _, g := range [][2]string{
 		{"app_orgmem_decisions", "org-memory: decisions stored"},
@@ -225,6 +238,64 @@ func statsHandler(ctx *gofr.Context) (any, error) {
 	publishMetrics(ctx)
 
 	return engine.ValueStats(), nil
+}
+
+// calibrateHandler (POST /calibrate): auto-set the relevance floor from the corpus's noise ceiling.
+// Body (both optional): {"probes": ["off-topic sentence", ...], "margin": 0.03}. Empty → built-in
+// generic probes. This is the "auto-adapt" path — no one hand-picks a cosine number.
+func calibrateHandler(ctx *gofr.Context) (any, error) {
+	var in struct {
+		Probes []string `json:"probes"`
+		Margin float64  `json:"margin"`
+	}
+
+	_ = ctx.Bind(&in)
+
+	margin := in.Margin
+	if margin <= 0 {
+		margin = cfg.F("retrieve.calibration_margin", 0.03)
+	}
+
+	floor, ceiling, err := engine.Calibrate(ctx, in.Probes, margin)
+	if err != nil {
+		return map[string]any{"error": err.Error()}, nil
+	}
+
+	return map[string]any{
+		"ok":              true,
+		"precision_floor": floor,
+		"noise_ceiling":   ceiling,
+		"margin":          margin,
+		"note":            "floor auto-set from the corpus; relevant queries score above the noise ceiling",
+	}, nil
+}
+
+// autoCalibrateOnStart runs one calibration at boot so a fresh deployment gets a corpus-appropriate
+// floor with zero tuning. Skipped if a floor was explicitly seeded (the operator's choice wins) or
+// if ORGMEM_AUTOCALIBRATE=off. Non-fatal on error (e.g. embedder down): the absolute-floor default
+// still applies and /calibrate can be retried live.
+func autoCalibrateOnStart(c *Config) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ORGMEM_AUTOCALIBRATE")), "off") {
+		return
+	}
+
+	if strings.TrimSpace(c.Str("retrieve.precision_floor", "")) != "" {
+		return // an explicit seed (ORGMEM_retrieve__precision_floor) wins over auto-calibration
+	}
+
+	_, _, _ = engine.Calibrate(context.Background(), nil, c.F("retrieve.calibration_margin", 0.03))
+}
+
+// researchHandler (GET /research): returns the raw RESEARCH.md so the console can render the
+// verified research foundations. The file is the single source of truth — the UI never duplicates it.
+func researchHandler(ctx *gofr.Context) (any, error) {
+	for _, p := range []string{"RESEARCH.md", "./RESEARCH.md"} {
+		if b, err := os.ReadFile(p); err == nil {
+			return map[string]any{"markdown": string(b)}, nil
+		}
+	}
+
+	return map[string]any{"markdown": "# Research foundations\n\n_RESEARCH.md not found next to the binary._"}, nil
 }
 
 // publishMetrics mirrors the value stats into GoFr's Prometheus gauges (scraped on METRICS_PORT).
