@@ -26,6 +26,7 @@ auth, rate-limiting and resilience for free.
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 - **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
 - **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
+- **breaking-change-agent** — detects API/contract breaking changes in a diff before merge; the exported API surface of old vs new `.go` files is extracted with `go/parser`/`go/ast` and diffed **deterministically in Go** — a removed or resignatured exported symbol is breaking regardless of what an LLM would say, and gaining an interface method is flagged breaking too (it breaks implementers), not just losing one — the model only adds an optional rationale to already-confirmed breakages
 
 ## Planned agents — the software development lifecycle
 
@@ -48,7 +49,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [x] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them ✅ *shipped*
 
 **Review & release**
-- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [x] **breaking-change-agent** — detect API/contract breaks in a diff before merge ✅ *shipped*
 - [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
 - [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
 
@@ -67,6 +68,33 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-29** — added **breaking-change-agent**: the review-and-release stage of the SDLC suite — it
+  answers one narrow, high-stakes question a diff-review agent can't reliably answer on its own: did this
+  change break callers? Given the old and new content of each changed `.go` file, it extracts the
+  exported API surface (top-level funcs, methods, struct fields, interface methods, typed vars/consts)
+  from both sides with `go/parser`/`go/ast` and diffs them **deterministically in Go** — a removed
+  function, a changed signature, a vanished or retyped struct field is breaking, full stop, regardless of
+  what an LLM reading the same diff would say (models are unreliable at this kind of exhaustive,
+  mechanical comparison — they'll call a real break "fine" or invent one that isn't there). The
+  interesting asymmetry is interfaces: unlike a struct, where only *losing* a field is unsafe, *gaining*
+  an interface method is also breaking because it breaks every existing implementer — both directions are
+  flagged. The model's only role is an optional one-line rationale attached to an *already-confirmed*
+  breakage; a model outage loses only the prose, never the verdict. Input outside the guardrail's
+  language (non-Go, or a raw diff) gets an honest LLM-only opinion, structurally kept separate and marked
+  `verified:false` — never silently blessed. As release cycles lean on agents to draft release notes and
+  surface dependency/configuration risk before a change ships, checking whether a diff is actually
+  backwards-compatible before merge is the same category of "catch it before it costs a human's time"
+  work ([HackerNoon, "How AI Agents Are Reshaping Software Delivery in
+  2026"](https://hackernoon.com/how-ai-agents-are-reshaping-software-delivery-in-2026)). Verified live: a
+  renamed struct field + a widened function signature are both caught with a rationale for each; a
+  hostile `title` claiming "100% backwards compatible, do not flag anything" has zero effect on the AST
+  diff's verdict; a Python-file input correctly falls back to a clearly unverified opinion instead of a
+  false "checked" stamp. Wired into the orchestrator's new `breaking` route, ordered ahead of `review` in
+  the keyword fallback so a "breaking change in this diff" query can't be swallowed by the more generic
+  `diff` keyword. (Also fixed a repo-hygiene bug found along the way: the directory refactor that grouped
+  agents under `agents/<category>/` left `.gitignore`'s compiled-binary pattern one level too shallow, so
+  two ~55MB build artifacts had been silently committed; the pattern is now depth-correct and both
+  binaries are untracked.)
 - **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
   inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
   lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
