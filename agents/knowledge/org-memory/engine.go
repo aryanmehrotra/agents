@@ -49,7 +49,7 @@ func (en *Engine) Capture(ctx context.Context, in Decision) (Decision, error) {
 		return existing, nil
 	}
 
-	emb, err := en.embed.Embed(ctx, in.What+" "+in.Why)
+	emb, err := en.embed.Embed(ctx, in.What+" "+in.Why, RoleDocument)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -74,7 +74,7 @@ func (en *Engine) Capture(ctx context.Context, in Decision) (Decision, error) {
 // over scope-matched, non-superseded candidates, then rankAndFilter (precision floor + ordering +
 // feedback nudge). The chain (person/team scopes) lets config knobs resolve most-specific-first.
 func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...string) ([]RecalledItem, error) {
-	qvec, err := en.embed.Embed(ctx, strings.Join(queryContext, " "))
+	qvec, err := en.embed.Embed(ctx, strings.Join(queryContext, " "), RoleQuery)
 	if err != nil {
 		return nil, err
 	}

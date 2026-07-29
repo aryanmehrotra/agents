@@ -15,14 +15,27 @@ Everything is behind swappable interfaces (`Store`, `Embedder`, `Config`) and ev
 
 ## Run
 ```bash
-# in-memory (data gone on restart)
-go run .
+# simplest: in-memory store + local (offline, deterministic) embedder — no infra, no keys
+ORGMEM_EMBED=local go run .
 
-# persistent (JSON file, survives restarts)
-ORG_MEMORY_PATH=./memory.json go run .
+# recommended local: embedded SQLite store + REAL semantic embeddings via Ollama
+ollama serve & ollama pull nomic-embed-text
+ORG_MEMORY_DB=./org-memory.db go run .        # EMBED defaults to http://localhost:11434/v1
 ```
 Recall is a **GET**, so `app.EnableMCP()` exposes it as the `recall_decisions` MCP tool — point Cursor /
 Claude Code at this service and it works. Writes are POST.
+
+## Embeddings (real semantic recall)
+By default it calls any **OpenAI-compatible `/v1/embeddings`** endpoint — set:
+```
+EMBED_BASE_URL=http://localhost:11434/v1   # Ollama (default) · your orchestrator · OpenAI
+EMBED_MODEL=nomic-embed-text               # 768-dim, local, private
+EMBED_API_KEY=...                          # only if the provider needs it
+ORGMEM_EMBED=local                         # explicit offline mode (deterministic, no provider)
+```
+**No silent fallback:** if the provider is down it fails loudly rather than mixing mismatched vectors
+into the store. (A Claude subscription gives *chat*, not embeddings — point EMBED at an embeddings model
+like Ollama's `nomic-embed-text`.)
 
 ## Endpoints
 | Method | Path | What |
@@ -57,11 +70,15 @@ curl -XPOST :8000/config -d '{"key":"retrieve.precision_floor","value":"0.5"}'
 `feedback.boost_per_helpful` (0.1) · `feedback.demote_per_notrel` (0.1) · `feedback.wrong_quarantine_at` (2).
 Set at deploy via `ORGMEM_<key>` env (e.g. `ORGMEM_retrieve__precision_floor=0.4`) or live via `POST /config`.
 
-## Storage (behind the `Store` interface — swap anytime)
-- **local / Phase 0**: in-memory or the JSON `fileStore` (this module) — zero ops.
-- **at scale**: `sqlite-vec` (embedded) → Postgres+pgvector. The engine never changes.
-Correctness comes from the ranking + precision + (later) abstain layers, not the store — the store just
-returns true nearest neighbours (exact brute-force cosine here, correct at this scale).
+## Storage (behind the `Store` interface — swap anytime, all zero-infra)
+- `memStore` — in-memory (default; data gone on restart)
+- `fileStore` — JSON file, `ORG_MEMORY_PATH=./memory.json`
+- `sqliteStore` — **embedded pure-Go SQLite** (no CGO, no server), `ORG_MEMORY_DB=./org-memory.db`
+- at scale: a `sqlite-vec` index → Postgres+pgvector — same interface, engine unchanged.
+
+Recall does **exact brute-force cosine** (correct at this scale; an ANN index is only worth it at
+millions). Correctness of *what's surfaced* comes from the ranking + precision + (later) abstain layers,
+not the store — the store just returns true nearest neighbours.
 
 ## Tests
 ```bash
@@ -71,7 +88,7 @@ go test -race ./...      # + concurrency/consistency gate
 Covers: dedupe, supersede-never-delete, scope match, precision floor / **inject-nothing**, ordering,
 feedback nudge + auto-quarantine, fractal config, persistence-across-reload, and concurrent consistency.
 
-## Not in Phase 0 (by design — earn it with data)
-Correctness/abstain layer, real-time relevance learning, the associative/analogical retrieval, domain
-packs, an LLM-backed embedder (the default local embedder is deterministic bag-of-words — swap via the
-`Embedder` interface). See the phased plan for what each later phase enables and why.
+## Not yet (by design — earn it with data)
+The **correctness / abstain layer** (Phase 1), real-time relevance learning (Phase 2), the
+associative/analogical retrieval, and domain packs (Phase 3). See the phased plan for what each later
+phase enables and why the order is forced by the data each phase needs.
