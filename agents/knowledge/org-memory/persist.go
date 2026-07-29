@@ -23,6 +23,7 @@ type snapshot struct {
 	Stats      map[string]Stats     `json:"stats"`
 	Edges      []edge               `json:"edges"`
 	Feedback   []Feedback           `json:"feedback"`
+	Relations  map[string]Relation  `json:"relations"`
 }
 
 func newFileStore(path string) (*fileStore, error) {
@@ -72,6 +73,10 @@ func (fs *fileStore) load() error {
 	fs.memStore.edges = s.Edges
 	fs.memStore.feedback = s.Feedback
 
+	if s.Relations != nil {
+		fs.memStore.relations = s.Relations
+	}
+
 	return nil
 }
 
@@ -84,6 +89,7 @@ func (fs *fileStore) save() {
 		Stats:      fs.memStore.stats,
 		Edges:      fs.memStore.edges,
 		Feedback:   fs.memStore.feedback,
+		Relations:  fs.memStore.relations,
 	}
 
 	for id, d := range fs.memStore.units {
@@ -119,4 +125,9 @@ func (fs *fileStore) Supersede(oldID, newID string) bool {
 	fs.save()
 
 	return ok
+}
+
+func (fs *fileStore) SetRelation(child, parent, status string) {
+	fs.memStore.SetRelation(child, parent, status)
+	fs.save()
 }

@@ -5,3 +5,5 @@ memory.json.tmp
 *.db
 *.db-wal
 *.db-shm
+org-memory.db
+org-memory.db-*

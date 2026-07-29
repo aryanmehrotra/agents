@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>org-memory · console</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#273140;
+    --ink:#e6edf3; --muted:#8b97a7; --accent:#4c9ffe; --accent2:#2b6fd6;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149; --chip:#22303f;
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f6f8fa;--panel:#fff;--panel2:#f0f3f6;--line:#d8dee4;--ink:#1f2328;
+          --muted:#59636e;--chip:#eaeef2;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent)}
+  .wrap{max-width:920px;margin:0 auto;padding:24px 18px 80px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.2px}
+  header .sub{color:var(--muted);font-size:13px;margin-top:1px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);margin-left:auto;flex:none}
+  .dot.on{background:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 22%,transparent)}
+  .dot.off{background:var(--bad)}
+  .guide{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+         border-radius:var(--radius);padding:16px 18px;margin:16px 0}
+  .guide h2{margin:0 0 8px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .step b{display:block;font-size:13px}.step span{color:var(--muted);font-size:12.5px}
+  .step .n{display:inline-flex;width:20px;height:20px;border-radius:6px;background:var(--chip);
+           color:var(--accent);font-weight:700;font-size:12px;align-items:center;justify-content:center;margin-bottom:6px}
+  @media(max-width:640px){.steps{grid-template-columns:1fr}}
+  nav.tabs{display:flex;gap:4px;margin:18px 0 14px;border-bottom:1px solid var(--line)}
+  .tab{padding:9px 14px;border:0;background:none;color:var(--muted);font-size:14px;cursor:pointer;
+       border-bottom:2px solid transparent;font-weight:550}
+  .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:10px 0 5px;font-weight:600}
+  input,textarea,select{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+        border-radius:9px;padding:10px 12px;font:inherit;font-size:14px;outline:none}
+  input:focus,textarea:focus{border-color:var(--accent)}
+  textarea{resize:vertical;min-height:52px}
+  .row{display:flex;gap:10px}.row>*{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;background:var(--accent);color:#fff;border:0;
+       border-radius:9px;padding:10px 16px;font:inherit;font-weight:600;font-size:14px;cursor:pointer}
+  .btn:hover{background:var(--accent2)} .btn.ghost{background:var(--chip);color:var(--ink)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .hint{color:var(--muted);font-size:12.5px;margin-top:8px}
+  .result{border:1px solid var(--line);border-radius:11px;padding:14px;margin-top:12px;background:var(--panel2)}
+  .result .top{display:flex;align-items:center;gap:10px}
+  .score{font-family:var(--mono);font-size:12px;color:var(--accent);background:var(--chip);
+         padding:3px 8px;border-radius:20px;flex:none}
+  .result .what{font-weight:600}
+  .why{color:var(--muted);font-size:13.5px;margin-top:4px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .chip{font-size:11.5px;color:var(--muted);background:var(--chip);border-radius:6px;padding:2px 8px;font-family:var(--mono)}
+  .fb{display:flex;gap:6px;margin-top:11px}
+  .fb button{border:1px solid var(--line);background:var(--bg);color:var(--muted);border-radius:8px;
+             padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+  .fb button:hover{color:var(--ink);border-color:var(--accent)}
+  .fb button.done{border-color:var(--good);color:var(--good)}
+  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:14px}
+  .empty b{color:var(--ink)}
+  .knob{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .knob:last-child{border:0}.knob .k{flex:1}.knob .k b{font-size:14px}.knob .k span{color:var(--muted);font-size:12px}
+  .knob input{width:100px;text-align:center}
+  .act{font-family:var(--mono);font-size:12.5px;border-bottom:1px solid var(--line);padding:9px 0;display:flex;gap:10px}
+  .act:last-child{border:0}.act .t{color:var(--muted);flex:none}
+  .act .tag{padding:1px 7px;border-radius:5px;font-size:11px;flex:none}
+  .tag.teach{background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent)}
+  .tag.ask{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+  .tag.rate{background:color-mix(in srgb,var(--good) 20%,transparent);color:var(--good)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+         padding:10px 18px;border-radius:10px;font-size:13.5px;font-weight:600;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1;bottom:30px}
+  .hide{display:none}
+  .mut{color:var(--muted)}
+  /* brain */
+  .brainbar{display:flex;align-items:center;gap:22px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .brainbar .stat b{font-size:20px;font-weight:700}.brainbar .stat span{color:var(--muted);font-size:12px;margin-left:6px}
+  .brainwrap{position:relative;background:radial-gradient(circle at 50% 38%,var(--panel2),var(--panel) 72%);min-height:420px}
+  .brainwrap svg{display:block;width:100%;height:auto}
+  .galaxy{animation:float 7s ease-in-out infinite;will-change:transform}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+  @media (prefers-reduced-motion:reduce){.galaxy{animation:none}}
+  .dot{cursor:pointer;transition:opacity .2s}.dot:hover{stroke:var(--ink);stroke-width:1.5}
+  .galaxy.dim{opacity:.1}
+  .glabel{fill:var(--muted);font-size:11px;font-weight:600;font-family:var(--mono);text-anchor:middle;pointer-events:none}
+  .legend{display:flex;flex-wrap:wrap;gap:7px;padding:12px 18px;border-top:1px solid var(--line)}
+  .lchip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);background:var(--chip);
+         border-radius:20px;padding:3px 10px;cursor:pointer;border:1px solid transparent}
+  .lchip:hover,.lchip.sel{border-color:var(--accent);color:var(--ink)}
+  .lchip i{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+  .bdetail{padding:2px 18px 18px}.bdetail .d{border-bottom:1px solid var(--line);padding:10px 0}
+  .bdetail .d b{font-size:13.5px}.bdetail .d .m{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .btip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;padding:7px 10px;
+        border-radius:8px;max-width:300px;opacity:0;transition:opacity .12s;z-index:20;line-height:1.4;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  .btip.show{opacity:1}
+  /* hierarchy tree */
+  .troot{font-size:15px;font-weight:650;padding:4px 0 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
+  .tparent{font-size:13px;color:var(--ink);margin:12px 0 2px;font-weight:600}
+  .tservice{display:flex;align-items:center;gap:10px;padding:6px 0 6px 22px;border-bottom:1px solid var(--line)}
+  .tservice .tname{flex:1;font-family:var(--mono);font-size:12.5px}
+  .tservice .tset{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
+  .pinput{width:130px;padding:5px 8px;font-size:12.5px;font-family:var(--mono)}
+  code{font-family:var(--mono);font-size:12px;background:var(--chip);padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🧠</div>
+    <div>
+      <h1>org-memory</h1>
+      <div class="sub">the why behind your team's decisions — surfaced when it matters</div>
+    </div>
+    <div id="dot" class="dot" title="checking…"></div>
+  </header>
+
+  <section class="guide" id="guide">
+    <h2>How it works · 3-step loop</h2>
+    <div class="steps">
+      <div class="step"><span class="n">1</span><b>Teach</b><span>Save a decision + the <i>why</i>. No docs to maintain.</span></div>
+      <div class="step"><span class="n">2</span><b>Ask</b><span>Before you act, see the 2–3 prior decisions that apply — or nothing.</span></div>
+      <div class="step"><span class="n">3</span><b>Rate</b><span>👍/✗ what it shows. It learns what to surface (and quarantines bad ones).</span></div>
+    </div>
+    <div class="hint">Your AI agent gets the same via the <b>recall_decisions</b> MCP tool in Claude&nbsp;CLI. <a href="#" id="dismiss">Hide guide</a></div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="brain">🧠 Brain</button>
+    <button class="tab" data-tab="hier">🗂 Hierarchy</button>
+    <button class="tab" data-tab="ask">Ask</button>
+    <button class="tab" data-tab="teach">Teach</button>
+    <button class="tab" data-tab="tune">Tune</button>
+    <button class="tab" data-tab="activity">Activity</button>
+  </nav>
+
+  <!-- BRAIN -->
+  <section class="card" data-panel="brain" style="padding:0;overflow:hidden">
+    <div class="brainbar">
+      <div class="stat"><b id="b-total">—</b><span>decisions</span></div>
+      <div class="stat"><b id="b-scopes">—</b><span>areas</span></div>
+      <div class="stat"><b id="b-quar">—</b><span>quarantined</span></div>
+      <button class="btn ghost" id="b-refresh" style="margin-left:auto">↻</button>
+    </div>
+    <div id="brain-svg" class="brainwrap"><div class="empty">loading the brain…</div></div>
+    <div id="brain-legend" class="legend"></div>
+    <div id="brain-detail" class="bdetail"></div>
+  </section>
+
+  <!-- HIERARCHY -->
+  <section class="card hide" data-panel="hier">
+    <div class="hint" style="margin:0 0 10px">Parent ▸ child tree, <b>persisted in the backend</b>. The
+      system <i>proposes</i> relations (e.g. <code>service:aggregator → layer:backend</code>) — you confirm
+      <b>yes/no</b>. Edit any <i>parent</i> to reorganise (any depth). <b>Recall inherits along it</b> — a
+      query in a child scope also surfaces its ancestors' decisions.</div>
+    <div id="hier-tree"><div class="empty">loading…</div></div>
+    <div style="margin-top:12px"><button class="btn ghost" id="hier-reset">↻ Re-scan for proposals</button></div>
+  </section>
+
+  <!-- ASK -->
+  <section class="card hide" data-panel="ask">
+    <label>What are you about to work on?</label>
+    <textarea id="ask-text" placeholder="e.g. adding a refund endpoint to the payments service"></textarea>
+    <label>Scope tags <span class="mut">(optional, comma-separated — narrows to what applies here)</span></label>
+    <input id="ask-scope" placeholder="service:pay, repo:billing"/>
+    <div style="margin-top:12px"><button class="btn" id="ask-btn">🔎 Ask memory</button></div>
+    <div id="ask-out"></div>
+  </section>
+
+  <!-- TEACH -->
+  <section class="card hide" data-panel="teach">
+    <label>The decision / rule *</label>
+    <textarea id="t-what" placeholder="money is always stored as int64 cents, never float"></textarea>
+    <label>Why <span class="mut">(the valuable part — the reason / what went wrong)</span></label>
+    <textarea id="t-why" placeholder="float rounding caused a double-charge incident (#412)"></textarea>
+    <div class="row">
+      <div><label>Scope tags</label><input id="t-scope" placeholder="service:pay"/></div>
+      <div><label>Who decided <span class="mut">(provenance)</span></label><input id="t-prov" placeholder="senior / staff / you"/></div>
+    </div>
+    <div style="margin-top:14px"><button class="btn" id="teach-btn">💾 Remember this</button></div>
+    <div class="hint">Same knowledge again just reinforces it — no duplicates.</div>
+  </section>
+
+  <!-- TUNE -->
+  <section class="card hide" data-panel="tune">
+    <div class="hint" style="margin:0 0 8px">Every behaviour is a live knob — changes take effect immediately, no restart.</div>
+    <div class="knob"><div class="k"><b>Precision floor</b><br><span>How relevant before it surfaces (higher = stricter, more "nothing")</span></div><input id="cfg-retrieve.precision_floor" type="number" step="0.05" min="0" max="1"/></div>
+    <div class="knob"><div class="k"><b>Top-K</b><br><span>Max decisions surfaced at once</span></div><input id="cfg-retrieve.top_k" type="number" step="1" min="1" max="20"/></div>
+    <div class="knob"><div class="k"><b>Wrong → quarantine</b><br><span>How many "wrong" marks before it's pulled</span></div><input id="cfg-feedback.wrong_quarantine_at" type="number" step="1" min="1"/></div>
+    <div style="margin-top:14px"><button class="btn" id="tune-btn">Save knobs</button> <button class="btn ghost" id="tune-reload">Reload current</button></div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section class="card hide" data-panel="activity">
+    <div class="hint" style="margin:0 0 6px">Everything you do here, newest first. <span class="mut">(session log — your agent's captures via MCP aren't shown; a read-only browse-all is one small endpoint away.)</span></div>
+    <div id="act-out"><div class="empty">No activity yet — <b>Teach</b> a decision to start.</div></div>
+    <div style="margin-top:12px"><button class="btn ghost" id="act-clear">Clear log</button></div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=(s,el=document)=>el.querySelector(s), $$=(s,el=document)=>[...el.querySelectorAll(s)];
+const API=location.origin;               // served same-origin by the service → no CORS, no config
+const LOGKEY="orgmem.activity";
+const toast=(m)=>{const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1900);};
+
+async function api(path,opts){
+  const r=await fetch(API+path,opts); const j=await r.json().catch(()=>({}));
+  const err=j.error&&(j.error.message||j.error);        // GoFr error shape
+  if(!r.ok||err) throw new Error(err||("HTTP "+r.status));
+  return j.data!==undefined ? j.data : j;               // GoFr wraps success in {data:…}
+}
+function csv(s){return (s||"").split(",").map(x=>x.trim()).filter(Boolean);}
+
+// ---- activity log (client-side; honours "no backend change") ----
+function log(kind,text){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
+  a.unshift({kind,text,t:new Date().toISOString()});localStorage.setItem(LOGKEY,JSON.stringify(a.slice(0,200)));renderAct();}
+function renderAct(){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
+  $("#act-out").innerHTML = a.length? a.map(e=>`<div class="act"><span class="t">${new Date(e.t).toLocaleString()}</span>
+    <span class="tag ${e.kind}">${e.kind}</span><span>${e.text}</span></div>`).join("")
+    : `<div class="empty">No activity yet — <b>Teach</b> a decision to start.</div>`;}
+
+// ---- tabs ----
+$$(".tab").forEach(b=>b.onclick=()=>{$$(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+  $$("[data-panel]").forEach(p=>p.classList.toggle("hide",p.dataset.panel!==b.dataset.tab));
+  if(b.dataset.tab==="tune")loadCfg(); if(b.dataset.tab==="brain")loadBrain(); if(b.dataset.tab==="hier")loadHier();});
+$("#dismiss").onclick=(e)=>{e.preventDefault();$("#guide").classList.add("hide");localStorage.setItem("orgmem.guide","hidden");};
+if(localStorage.getItem("orgmem.guide")==="hidden")$("#guide").classList.add("hide");
+
+// ---- ASK / recall ----
+$("#ask-btn").onclick=async()=>{
+  const text=$("#ask-text").value.trim(); if(!text)return toast("Type what you're working on");
+  const ctx=[...csv($("#ask-scope").value),text].join(",");
+  $("#ask-out").innerHTML=`<div class="empty">thinking…</div>`;
+  try{
+    const j=await api("/recall?context="+encodeURIComponent(ctx));
+    log("ask",`asked: “${text.slice(0,60)}” → ${j.count} surfaced`);
+    if(!j.items||!j.items.length){$("#ask-out").innerHTML=
+      `<div class="empty"><b>Nothing relevant.</b><br>That's a valid answer — irrelevant context only hurts. Nothing was injected.</div>`;return;}
+    $("#ask-out").innerHTML=j.items.map(it=>{
+      const d=it.decision, sc=(d.scope||[]).map(s=>`<span class="chip">${s}</span>`).join("");
+      return `<div class="result" data-id="${d.id}">
+        <div class="top"><span class="score">${(it.score).toFixed(2)}</span><span class="what">${esc(d.what)}</span></div>
+        ${d.why?`<div class="why">${esc(d.why)}</div>`:""}
+        <div class="chips">${sc}${d.provenance?`<span class="chip">by ${esc(d.provenance)}</span>`:""}</div>
+        <div class="fb">
+          <button data-s="helpful">👍 helpful</button>
+          <button data-s="not_relevant">🚫 not relevant</button>
+          <button data-s="wrong">✗ wrong</button>
+        </div></div>`;}).join("");
+    $$(".result").forEach(r=>$$(".fb button",r).forEach(b=>b.onclick=()=>sendFB(r.dataset.id,b.dataset.s,b)));
+  }catch(e){$("#ask-out").innerHTML=`<div class="empty">⚠️ ${esc(e.message)}</div>`;}
+};
+async function sendFB(id,signal,btn){
+  try{await api("/feedback",{method:"POST",headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({decision_id:id,signal})});
+    btn.classList.add("done");btn.textContent="✓ "+btn.textContent.replace(/^[^ ]+ /,'');
+    log("rate",`rated ${signal} → ${id.slice(0,10)}`); toast("Thanks — it learns from that");
+  }catch(e){toast("⚠️ "+e.message);}
+}
+
+// ---- TEACH / capture ----
+$("#teach-btn").onclick=async()=>{
+  const what=$("#t-what").value.trim(); if(!what)return toast("The decision is required");
+  const body={what,why:$("#t-why").value.trim(),scope:csv($("#t-scope").value),provenance:$("#t-prov").value.trim()};
+  try{const j=await api("/capture",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast("Remembered ✓"); log("teach",`taught: “${what.slice(0,60)}”`);
+    $("#t-what").value=$("#t-why").value=$("#t-scope").value=$("#t-prov").value="";
+  }catch(e){toast("⚠️ "+e.message);}
+};
+
+// ---- TUNE / config ----
+const CFG=["retrieve.precision_floor","retrieve.top_k","feedback.wrong_quarantine_at"];
+async function loadCfg(){for(const k of CFG){try{const j=await api("/config?key="+encodeURIComponent(k));
+  if(j.value!=="")$("#cfg-"+CSS.escape(k)).value=j.value;}catch(e){}}}
+$("#tune-reload").onclick=loadCfg;
+$("#tune-btn").onclick=async()=>{let n=0;
+  for(const k of CFG){const v=$("#cfg-"+CSS.escape(k)).value.trim(); if(v==="")continue;
+    try{await api("/config",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k,value:v})});n++;}catch(e){}}
+  toast(n+" knob"+(n!=1?"s":"")+" saved (live)"); log("teach",`tuned ${n} config knob(s)`);};
+
+// ---- health dot ----
+async function ping(){try{await api("/config?key=retrieve.top_k");$("#dot").className="dot on";$("#dot").title="connected";}
+  catch(e){$("#dot").className="dot off";$("#dot").title="service unreachable";}}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// ---- BRAIN (visualise the whole memory) ----
+let BRAIN=[], BRAINSEL=null;
+const PAL=["#4c9ffe","#3fb950","#d29922","#a371f7","#f778ba","#56d4dd","#e3b341","#ff7b72","#7ee787","#79c0ff","#ffa657","#d2a8ff","#f0883e","#39c5cf"];
+function primaryScope(sc){sc=sc||[];
+  return sc.find(s=>s.startsWith("service:"))||sc.find(s=>s.startsWith("frontend:"))||sc.find(s=>s.includes(":")&&!s.startsWith("repo:"))||sc[0]||"general";}
+let NODES=[], LASTPROJ=[], ROT=0, RAF=null, CV, CTX, DPR=1, GROUPS={}, NAMES=[], COLOR={};
+// hierarchy lives in the BACKEND (no client-side state). REL is a cache of the fetched relations.
+let REL={}, HIERTAGS=[];
+function parentOf(n){const r=REL[n]; if(r&&r.status==="confirmed"&&r.parent)return r.parent;
+  return n.startsWith("service:")?"layer:backend": n.startsWith("frontend:")?"layer:frontend": n;}
+async function fetchHierarchy(){try{const h=await api("/hierarchy"); REL={}; (h.relations||[]).forEach(r=>REL[r.child]=r); HIERTAGS=h.tags||[];}catch(e){}}
+async function loadBrain(){
+  try{const d=await api("/decisions"); BRAIN=d.decisions||[]; await fetchHierarchy();
+    $("#b-total").textContent=d.count; $("#b-quar").textContent=d.quarantined; buildBrain(); startBrain();
+  }catch(e){$("#brain-svg").innerHTML=`<div class="empty">⚠️ ${esc(e.message)}</div>`;}
+}
+function ensureTip(){let t=$("#btip"); if(!t){t=document.createElement("div");t.id="btip";t.className="btip";document.body.appendChild(t);} return t;}
+// Build a 3-D point cloud: cluster centroids spread on a (fibonacci) sphere, decisions jittered around
+// their centroid — a round, spatial "brain" where each colour is a service/area.
+function buildBrain(){
+  if(!BRAIN.length){$("#brain-svg").innerHTML=`<div class="empty">The brain is empty — <b>Teach</b> it a decision.</div>`;return;}
+  GROUPS={}; BRAIN.forEach(v=>{const g=primaryScope(v.decision.scope);(GROUPS[g]=GROUPS[g]||[]).push(v);});
+  NAMES=Object.keys(GROUPS).sort((a,b)=>GROUPS[b].length-GROUPS[a].length);
+  $("#b-scopes").textContent=NAMES.length;
+  COLOR={}; NAMES.forEach((n,i)=>COLOR[n]=PAL[i%PAL.length]);
+  // ONE connected ellipsoid = a round brain. Services are overlapping regions inside it; backend leans
+  // to the left hemisphere, frontend to the right, core (docs) in the middle — hierarchy without gaps.
+  const RX=270, RY=155, RZ=195;
+  // group services under their PARENT (user-settable). Each parent leans to its own hemisphere region
+  // within the one ellipsoid — connected, but hierarchy is visible.
+  const parents=[...new Set(NAMES.map(parentOf))];
+  const pbias={}; parents.forEach((p,i)=>{pbias[p]=parents.length>1?(-0.30+0.60*(i/(parents.length-1))):0;});
+  const cent={};
+  NAMES.forEach((n,i)=>{const t=NAMES.length>1?i/(NAMES.length-1):0.5, y=1-2*t, rad=Math.sqrt(Math.max(0,1-y*y)), th=i*2.399963267;
+    cent[n]={x:0.34*RX*rad*Math.cos(th)+pbias[parentOf(n)]*RX, y:0.5*RY*y, z:0.40*RZ*rad*Math.sin(th)};});
+  NODES=[];
+  NAMES.forEach(n=>{const c=cent[n], arr=GROUPS[n], spr=0.24+0.08*Math.sqrt(arr.length);
+    arr.forEach(v=>{let x,y2,z; do{x=Math.random()*2-1;y2=Math.random()*2-1;z=Math.random()*2-1;}while(x*x+y2*y2+z*z>1);
+      let nx=c.x+x*RX*spr, ny=c.y+y2*RY*spr, nz=c.z+z*RZ*spr;
+      const e=Math.sqrt((nx/RX)**2+(ny/RY)**2+(nz/RZ)**2); if(e>1){nx/=e;ny/=e;nz/=e;} // clamp into the brain
+      NODES.push({v,n,parent:parentOf(n),color:COLOR[n],x:nx,y:ny,z:nz});});});
+  $("#brain-legend").innerHTML=NAMES.map(n=>`<span class="lchip${BRAINSEL===n?' sel':''}" data-n="${esc(n)}"><i style="background:${COLOR[n]}"></i>${esc(n)} (${GROUPS[n].length})</span>`).join("");
+  $$(".lchip").forEach(ch=>ch.onclick=()=>{BRAINSEL=(BRAINSEL===ch.dataset.n)?null:ch.dataset.n;
+    $$(".lchip").forEach(x=>x.classList.toggle("sel",x.dataset.n===BRAINSEL)); showGroup(BRAINSEL,GROUPS);});
+}
+function sizeBrainCanvas(){DPR=Math.min(devicePixelRatio||1,2); const w=CV.clientWidth||900,h=460;
+  CV.width=w*DPR; CV.height=h*DPR; CV.style.height=h+"px";}
+function startBrain(){
+  if(!NODES.length)return;
+  $("#brain-svg").innerHTML='<canvas id="braincanvas" style="width:100%;display:block"></canvas>';
+  CV=$("#braincanvas"); CTX=CV.getContext("2d"); sizeBrainCanvas();
+  CV.onmousemove=brainHover; CV.onmouseleave=()=>ensureTip().classList.remove("show"); CV.onclick=brainClick;
+  if(RAF)cancelAnimationFrame(RAF);
+  const loop=()=>{ RAF=requestAnimationFrame(loop);
+    if(document.querySelector('[data-panel="brain"]').classList.contains("hide"))return; // pause when off-tab
+    ROT+=0.0035; renderBrain(); }; loop();
+}
+function renderBrain(){
+  const w=CV.width,h=CV.height,cx=w/2,cy=h/2,focal=640,cos=Math.cos(ROT),sin=Math.sin(ROT);
+  CTX.clearRect(0,0,w,h);
+  const arr=NODES.map((nd,idx)=>{const rx=nd.x*cos+nd.z*sin, rz=-nd.x*sin+nd.z*cos; return{idx,nd,rx,ry:nd.y,rz};});
+  arr.sort((a,b)=>a.rz-b.rz);                    // painter's: far first
+  LASTPROJ=[];
+  for(const p of arr){
+    const scale=focal/(focal-p.rz);
+    const sx=cx+p.rx*scale*DPR, sy=cy+p.ry*scale*DPR, r=Math.max(1.8,5.4*scale)*DPR;
+    const near=Math.min(Math.max((p.rz+220)/440,0),1);
+    const dim=(BRAINSEL&&BRAINSEL!==p.nd.n)?0.06:1;
+    CTX.globalAlpha=(0.60+0.40*near)*dim;
+    CTX.shadowBlur=4*DPR*near; CTX.shadowColor=p.nd.color;
+    CTX.beginPath(); CTX.arc(sx,sy,r,0,6.283);
+    CTX.fillStyle=p.nd.v.decision.quarantined?"#f85149":p.nd.color; CTX.fill();
+    LASTPROJ.push({sx,sy,r,idx:p.idx});
+  }
+  CTX.globalAlpha=1; CTX.shadowBlur=0;
+}
+function nearestDot(e){const b=CV.getBoundingClientRect(),mx=(e.clientX-b.left)*DPR,my=(e.clientY-b.top)*DPR;
+  let best=null,bd=1e9; for(const p of LASTPROJ){const d=(p.sx-mx)**2+(p.sy-my)**2; if(d<bd){bd=d;best=p;}}
+  return (best&&bd<(best.r+7*DPR)**2)?best:null;}
+function brainHover(e){const p=nearestDot(e),tip=ensureTip();
+  if(p){const v=NODES[p.idx].v; tip.innerHTML=`<b>${esc(v.decision.what)}</b>${v.decision.why?"<br>"+esc(v.decision.why):""}`;
+    tip.style.left=Math.min(e.clientX+14,innerWidth-310)+"px"; tip.style.top=(e.clientY+14)+"px"; tip.classList.add("show"); CV.style.cursor="pointer";}
+  else{tip.classList.remove("show"); CV.style.cursor="grab";}}
+function brainClick(e){const p=nearestDot(e); if(p){$("#brain-detail").innerHTML=detailRow(NODES[p.idx].v); wireDetailFb(); $("#brain-detail").scrollIntoView({behavior:"smooth",block:"nearest"});}}
+window.addEventListener("resize",()=>{if(CV&&!document.querySelector('[data-panel=\"brain\"]').classList.contains("hide"))sizeBrainCanvas();});
+function showGroup(n,groups){const el=$("#brain-detail"); if(!n){el.innerHTML="";return;}
+  el.innerHTML=`<h3 style="font-size:14px;margin:12px 0 4px">${esc(n)} — ${groups[n].length} decisions</h3>`+groups[n].map(detailRow).join(""); wireDetailFb();}
+function detailRow(v){const d=v.decision, st=v.stats||{};
+  return `<div class="d" data-id="${d.id}"><b>${esc(d.what)}</b>${d.why?`<div class="m">${esc(d.why)}</div>`:""}
+    <div class="chips">${(d.scope||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join("")}
+    ${st.helpful?`<span class="chip">👍 ${st.helpful}</span>`:""}${st.wrong?`<span class="chip">✗ ${st.wrong}</span>`:""}
+    ${d.quarantined?`<span class="chip" style="color:var(--bad)">quarantined</span>`:""}</div>
+    <div class="fb"><button data-s="helpful">👍 helpful</button><button data-s="not_relevant">🚫 not relevant</button><button data-s="wrong">✗ wrong</button></div></div>`;}
+function wireDetailFb(){$$("#brain-detail .d").forEach(r=>$$(".fb button",r).forEach(b=>b.onclick=()=>sendFB(r.dataset.id,b.dataset.s,b)));}
+$("#b-refresh").onclick=loadBrain;
+
+// ---- HIERARCHY (BACKEND tree: proposals yes/no + nested tree + set-parent; no client-side state) ----
+async function loadHier(){
+  try{ if(!BRAIN.length){const d=await api("/decisions"); BRAIN=d.decisions||[]; $("#b-total").textContent=d.count;}
+    await fetchHierarchy(); renderHier(); }
+  catch(e){$("#hier-tree").innerHTML=`<div class="empty">⚠️ ${esc(e.message)}</div>`;}
+}
+function directCount(node){let c=0; BRAIN.forEach(v=>{if(primaryScope(v.decision.scope)===node)c++;}); return c;}
+async function confirmRel(child,parent,accept){await api("/hierarchy/confirm",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({child,parent,accept})}); toast(accept?"confirmed ✓":"rejected"); await loadHier(); if(NODES.length){buildBrain();startBrain();}}
+async function setParent(child,parent){await api("/hierarchy",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({child,parent})}); toast("parent set"); await loadHier(); if(NODES.length){buildBrain();startBrain();}}
+function renderHier(){
+  const proposed=Object.values(REL).filter(r=>r.status==="proposed");
+  let ph;
+  if(proposed.length){ ph=`<div class="tparent">Proposed relations — the system suggests, you confirm</div>`+
+    proposed.map(r=>`<div class="tservice"><span class="tname">${esc(r.child)} → <b>${esc(r.parent)}</b></span>
+      <span class="tset"><button class="btn" style="padding:5px 12px" data-c="${esc(r.child)}" data-p="${esc(r.parent)}" data-a="1">✓ yes</button>
+      <button class="btn ghost" style="padding:5px 12px" data-c="${esc(r.child)}" data-p="${esc(r.parent)}" data-a="0">✗ no</button></span></div>`).join("");
+  } else { ph=`<div class="hint">No pending proposals. <button class="btn ghost" id="hier-gen">Propose relations</button></div>`; }
+  const conf={}; Object.values(REL).forEach(r=>{if(r.status==="confirmed")conf[r.child]=r.parent;});
+  const nodes=new Set(HIERTAGS); Object.entries(conf).forEach(([c,p])=>{nodes.add(c);if(p)nodes.add(p);});
+  const kids={}; nodes.forEach(n=>kids[n]=[]); Object.entries(conf).forEach(([c,p])=>{if(kids[p])kids[p].push(c);});
+  const roots=[...nodes].filter(n=>!conf[n]).sort();
+  const node=(n,depth)=>{const dc=directCount(n);
+    let s=`<div class="tservice" style="padding-left:${8+depth*22}px"><span class="tname">${depth?"└ ":""}${esc(n)}${dc?` <span class="mut">(${dc})</span>`:""}</span>
+      <span class="tset">parent <input class="pinput" data-s="${esc(n)}" value="${esc(conf[n]||"")}" placeholder="(root)"/></span></div>`;
+    (kids[n]||[]).sort().forEach(c=>s+=node(c,depth+1)); return s;};
+  const tree=roots.map(r=>node(r,0)).join("");
+  $("#hier-tree").innerHTML=`<div class="troot">🧠 org-memory · ${BRAIN.length} decisions</div>${ph}
+    <div class="tparent">Tree — parent ▸ child, any depth (recall inherits along it)</div>${tree||'<div class="empty">No confirmed relations yet — confirm the proposals above.</div>'}`;
+  $$("#hier-tree [data-a]").forEach(b=>b.onclick=()=>confirmRel(b.dataset.c,b.dataset.p,b.dataset.a==="1"));
+  $$("#hier-tree .pinput").forEach(inp=>inp.onchange=()=>setParent(inp.dataset.s,inp.value.trim()));
+  const gen=$("#hier-gen"); if(gen)gen.onclick=async()=>{await api("/hierarchy/propose",{method:"POST"}); await loadHier();};
+}
+$("#hier-reset").onclick=async()=>{await api("/hierarchy/propose",{method:"POST"}); await loadHier();};
+
+renderAct(); loadBrain(); ping(); setInterval(ping,5000);
+$("#act-clear").onclick=()=>{localStorage.removeItem(LOGKEY);renderAct();};
+</script>
+</body>
+</html>

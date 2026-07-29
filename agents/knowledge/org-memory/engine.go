@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,6 +81,7 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 	}
 
 	cset := contextSet(queryContext)
+	en.expandAncestors(cset) // hierarchy inheritance: a child query also matches its ancestors' decisions
 
 	var cands []scored
 
@@ -145,6 +147,165 @@ func (en *Engine) linkScopeEdges(d Decision) {
 
 				break
 			}
+		}
+	}
+}
+
+// DecisionView is a decision plus its feedback stats — the read-only monitoring/brain shape.
+type DecisionView struct {
+	Decision Decision `json:"decision"`
+	Stats    Stats    `json:"stats"`
+}
+
+// List returns all active (non-superseded) decisions with their feedback stats. Read-only — it changes
+// no behaviour; it exists so a dashboard can visualise the whole memory ("the brain").
+func (en *Engine) List() []DecisionView {
+	act := en.store.Active()
+	out := make([]DecisionView, 0, len(act))
+
+	for _, d := range act {
+		out = append(out, DecisionView{Decision: d, Stats: en.store.Stats(d.ID)})
+	}
+
+	return out
+}
+
+// --- scope hierarchy (parent → child relations, confirmed via the API / yes-no) ---
+
+// HierarchyView is the read shape for the UI: all relations + the scope tags currently in use.
+type HierarchyView struct {
+	Relations []Relation `json:"relations"`
+	Tags      []string   `json:"tags"` // distinct scope tags across active decisions
+}
+
+// Hierarchy returns the stored relations plus the scope tags in use, so the UI can render the tree.
+func (en *Engine) Hierarchy() HierarchyView {
+	tagset := map[string]bool{}
+
+	for _, d := range en.store.Active() {
+		for _, s := range d.Scope {
+			if t := strings.TrimSpace(s); t != "" {
+				tagset[t] = true
+			}
+		}
+	}
+
+	tags := make([]string, 0, len(tagset))
+	for t := range tagset {
+		tags = append(tags, t)
+	}
+
+	sort.Strings(tags)
+
+	return HierarchyView{Relations: en.store.Relations(), Tags: tags}
+}
+
+// SetParent confirms a parent→child relation (the user setting the tree).
+func (en *Engine) SetParent(child, parent string) {
+	en.store.SetRelation(strings.TrimSpace(child), strings.TrimSpace(parent), "confirmed")
+}
+
+// ConfirmRelation records a yes/no on a proposed relation: accept → confirmed, reject → rejected
+// (kept so it is not proposed again).
+func (en *Engine) ConfirmRelation(child, parent string, accept bool) {
+	status := "rejected"
+	if accept {
+		status = "confirmed"
+	}
+
+	en.store.SetRelation(strings.TrimSpace(child), strings.TrimSpace(parent), status)
+}
+
+// Propose generates parent relations for scope tags that have none yet (heuristic; the user confirms
+// each yes/no). Returns the freshly-proposed relations.
+func (en *Engine) Propose() []Relation {
+	existing := map[string]bool{}
+	for _, r := range en.store.Relations() {
+		existing[r.Child] = true
+	}
+
+	tagset := map[string]bool{}
+	root := ""
+	hasBackend, hasFrontend := false, false
+
+	for _, d := range en.store.Active() {
+		for _, s := range d.Scope {
+			t := strings.TrimSpace(s)
+			tagset[t] = true
+
+			switch {
+			case strings.HasPrefix(t, "repo:"):
+				root = t
+			case strings.HasPrefix(t, "service:"):
+				hasBackend = true
+			case strings.HasPrefix(t, "frontend:"):
+				hasFrontend = true
+			}
+		}
+	}
+
+	var props []Relation
+
+	propose := func(child, parent string) {
+		if child == "" || parent == "" || child == parent || existing[child] {
+			return
+		}
+
+		en.store.SetRelation(child, parent, "proposed")
+		props = append(props, Relation{Child: child, Parent: parent, Status: "proposed"})
+		existing[child] = true
+	}
+
+	for t := range tagset {
+		switch {
+		case strings.HasPrefix(t, "service:"):
+			propose(t, "layer:backend")
+		case strings.HasPrefix(t, "frontend:"):
+			propose(t, "layer:frontend")
+		}
+	}
+
+	if hasBackend {
+		propose("layer:backend", root)
+	}
+
+	if hasFrontend {
+		propose("layer:frontend", root)
+	}
+
+	return props
+}
+
+// expandAncestors adds every confirmed ancestor of each context tag into the set, so a query scoped
+// to a child also matches decisions scoped to its parents (inheritance down the tree).
+func (en *Engine) expandAncestors(cset map[string]bool) {
+	pm := map[string]string{}
+
+	for _, r := range en.store.Relations() {
+		if r.Status == "confirmed" {
+			pm[r.Child] = r.Parent
+		}
+	}
+
+	if len(pm) == 0 {
+		return
+	}
+
+	seed := make([]string, 0, len(cset))
+	for t := range cset {
+		seed = append(seed, t)
+	}
+
+	for _, t := range seed {
+		cur := t
+		for i := 0; i < 32; i++ {
+			p, ok := pm[cur]
+			if !ok || p == "" || cset[p] {
+				break
+			}
+
+			cset[p] = true
+			cur = p
 		}
 	}
 }

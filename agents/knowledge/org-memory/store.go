@@ -16,17 +16,20 @@ type Store interface {
 	RecordFeedback(f Feedback)                 // append-only feedback event
 	Bump(id, signal string, delta int)         // adjust a materialized feedback counter
 	Stats(id string) Stats                     // read feedback counters
+	SetRelation(child, parent, status string)  // set/replace a scope relation (one parent per child)
+	Relations() []Relation                     // all scope relations
 }
 
 // memStore is the in-memory Store: concurrency-safe, deterministic, zero-dependency. It makes the
 // whole engine unit-testable with no external infra, and is a fine backing for personal/local use.
 type memStore struct {
-	mu       sync.RWMutex
-	units    map[string]Decision
-	order    []string // insertion order → stable Active() output
-	stats    map[string]Stats
-	edges    []edge
-	feedback []Feedback
+	mu        sync.RWMutex
+	units     map[string]Decision
+	order     []string // insertion order → stable Active() output
+	stats     map[string]Stats
+	edges     []edge
+	feedback  []Feedback
+	relations map[string]Relation // keyed by child (one parent per child)
 }
 
 type edge struct {
@@ -35,7 +38,7 @@ type edge struct {
 }
 
 func newMemStore() *memStore {
-	return &memStore{units: map[string]Decision{}, stats: map[string]Stats{}}
+	return &memStore{units: map[string]Decision{}, stats: map[string]Stats{}, relations: map[string]Relation{}}
 }
 
 func (s *memStore) Put(d Decision) {
@@ -144,4 +147,27 @@ func (s *memStore) Stats(id string) Stats {
 	defer s.mu.RUnlock()
 
 	return s.stats[id]
+}
+
+func (s *memStore) SetRelation(child, parent, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if child == "" {
+		return
+	}
+
+	s.relations[child] = Relation{Child: child, Parent: parent, Status: status}
+}
+
+func (s *memStore) Relations() []Relation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]Relation, 0, len(s.relations))
+	for _, r := range s.relations {
+		out = append(out, r)
+	}
+
+	return out
 }

@@ -45,6 +45,15 @@ type RecalledItem struct {
 	Guidance string   `json:"guidance"`
 }
 
+// Relation is a parent→child link in the scope hierarchy, with a confirmation status. Confirmed
+// relations (set by a human, or a proposal accepted yes/no) define the tree that recall inherits
+// along — a query in a child scope also surfaces its ancestors' decisions. Persisted in the backend.
+type Relation struct {
+	Child  string `json:"child"`  // e.g. "service:aggregator"
+	Parent string `json:"parent"` // e.g. "layer:backend"
+	Status string `json:"status"` // confirmed | proposed | rejected
+}
+
 // Feedback is a reaction to a surfaced decision — the improvement signal.
 type Feedback struct {
 	DecisionID string   `json:"decision_id"`
