@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,6 +23,11 @@ type Engine struct {
 	store Store
 	embed Embedder
 	cfg   *Config
+
+	// live counters (since start) for the value metrics
+	recalls      int64
+	recallsEmpty int64
+	surfaced     int64
 }
 
 func NewEngine(s Store, e Embedder, c *Config) *Engine {
@@ -99,7 +105,77 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 		})
 	}
 
-	return rankAndFilter(cands, en.cfg, chain...), nil
+	items := rankAndFilter(cands, en.cfg, chain...)
+
+	atomic.AddInt64(&en.recalls, 1)
+	atomic.AddInt64(&en.surfaced, int64(len(items)))
+
+	if len(items) == 0 {
+		atomic.AddInt64(&en.recallsEmpty, 1)
+	}
+
+	return items, nil
+}
+
+// ValueStats is the numerical value dashboard: usage, feedback, and an estimated token ROI. The two
+// estimate rates are live Config knobs (metrics.tokens_per_item, metrics.tokens_per_prevented) so the
+// numbers reflect your own assumptions; a rigorous lift needs A/B withholding (roadmap).
+type ValueStats struct {
+	Decisions        int     `json:"decisions"`
+	Recalls          int64   `json:"recalls"`
+	RecallsEmpty     int64   `json:"recalls_empty"`
+	ItemsSurfaced    int64   `json:"items_surfaced"`
+	Helpful          int     `json:"helpful"`
+	Used             int     `json:"used"`
+	NotRelevant      int     `json:"not_relevant"`
+	Wrong            int     `json:"wrong"`
+	TokensInjected   int64   `json:"tokens_injected_est"`
+	TokensSaved      int64   `json:"tokens_saved_est"`
+	NetTokens        int64   `json:"net_tokens_est"`
+	PrecisionPct     float64 `json:"precision_pct"`
+	InjectNothingPct float64 `json:"inject_nothing_pct"`
+}
+
+// ValueStats computes the dashboard. Feedback tallies are read from the durable store; recall counters
+// are since-start.
+func (en *Engine) ValueStats() ValueStats {
+	act := en.store.Active()
+
+	var h, u, nr, w int
+	for _, d := range act {
+		st := en.store.Stats(d.ID)
+		h += st.Helpful
+		u += st.Used
+		nr += st.NotRelevant
+		w += st.Wrong
+	}
+
+	perItem := int64(en.cfg.I("metrics.tokens_per_item", 45))
+	perSaved := int64(en.cfg.I("metrics.tokens_per_prevented", 2000))
+
+	recalls := atomic.LoadInt64(&en.recalls)
+	empty := atomic.LoadInt64(&en.recallsEmpty)
+	surf := atomic.LoadInt64(&en.surfaced)
+
+	injected := surf * perItem
+	saved := int64(h+u) * perSaved
+
+	prec := 0.0
+	if h+w > 0 {
+		prec = 100 * float64(h) / float64(h+w)
+	}
+
+	emptyPct := 0.0
+	if recalls > 0 {
+		emptyPct = 100 * float64(empty) / float64(recalls)
+	}
+
+	return ValueStats{
+		Decisions: len(act), Recalls: recalls, RecallsEmpty: empty, ItemsSurfaced: surf,
+		Helpful: h, Used: u, NotRelevant: nr, Wrong: w,
+		TokensInjected: injected, TokensSaved: saved, NetTokens: saved - injected,
+		PrecisionPct: prec, InjectNothingPct: emptyPct,
+	}
 }
 
 // RecordFeedback logs a reaction (append-only) and applies the simple Phase-0 effect: helpful/used
