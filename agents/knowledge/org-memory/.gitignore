@@ -1,0 +1,4 @@
+org-memory
+*.tmp
+memory.json
+memory.json.tmp
