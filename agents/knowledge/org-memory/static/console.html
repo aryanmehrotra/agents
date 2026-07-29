@@ -495,6 +495,7 @@ async function loadStats(){
       [Number(s.tokens_saved_est).toLocaleString(),"tokens saved (est)"],
       [Number(s.tokens_injected_est).toLocaleString(),"tokens injected (cost)"],
       [s.helpful+" / "+s.wrong,"helpful / wrong feedback"],
+      [s.hot+" / "+s.cold,"memory health — hot / cold (fading)"],
     ];
     $("#v-grid").innerHTML=cards.map(c=>'<div class="vcard"><div class="n">'+c[0]+'</div><div class="l">'+c[1]+'</div></div>').join("");
     $("#v-note").innerHTML='Estimates use two knobs (edit in <b>Tune</b>): <code>metrics.tokens_per_item</code> injected per surfaced decision, and <code>metrics.tokens_per_prevented</code> saved per helpful hit. Live Prometheus gauges <code>app_orgmem_*</code> scrape on the metrics port → Grafana (your "push"). A rigorous causal lift needs A/B withholding (roadmap).';

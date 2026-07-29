@@ -176,6 +176,68 @@ E5 paper; the exact Nomic prefix strings come from model docs. Our `embed_http.g
 
 ---
 
+## 9. The human-memory model — context, consolidation, forgetting
+
+The system stores knowledge like **git** (auto-detected context, groupable), but curates it like a
+**brain** (keep the important, let the trash fade). Git never forgets — correct for code, wrong for a
+memory. Three bodies of human-memory research shape the curation layer.
+
+### 9a. Context is a retrieval PRIOR, not a wall (`engine.go` soft-context)
+- **Tulving & Thomson, "Encoding specificity…" (*Psych. Review*, 1973).** A retrieval cue works only
+  to the extent it matches the encoding context — so a decision made in one repo is most reliably
+  surfaced when that repo's context recurs.
+- **Godden & Baddeley, "Context-dependent memory… on land and underwater" (*Br. J. Psych.*, 1975).**
+  Divers recalled more when the test environment matched the learning environment. (Honest-scope: a
+  2021 replication, Murre, *R. Soc. Open Sci.*, found the effect real but weak, d≈0.25.)
+- **Bower, "Mood and memory" (*American Psychologist*, 1981).** State/mood at retrieval acts as a cue
+  — context is broader than location.
+- **Gao et al., "CDMem" (NAACL 2025).** An LLM-agent framework that indexes memory by task/environment
+  context — the direct engineering instance of "context as a retrieval key."
+
+  **Design consequence:** repo/scope is a strong *prior* (specificity boost), **not** a hard filter —
+  else generalizable wisdom gets walled inside the repo it was recorded in. This is exactly the
+  soft-context change: relevant-cross-repo still surfaces; same-repo is preferred.
+
+### 9b. The best is consolidated — importance gates persistence (roadmap: importance scoring)
+- **McClelland, McNaughton & O'Reilly, "Complementary Learning Systems" (*Psych. Review*, 1995);
+  Squire & Alvarez, standard consolidation theory (*Curr. Opin. Neurobiol.*, 1995).** Fast episodic
+  store → slow structured store; not everything is retained equally.
+- **Frey & Morris, "Synaptic tagging and LTP" (*Nature*, 1997).** Only *salient* events capture the
+  proteins that make a trace last — importance gates consolidation at the synapse.
+- **Diekelmann & Born, "The memory function of sleep" (*Nat. Rev. Neurosci.*, 2010);** **Castel,
+  value-directed remembering (*Dev. Psych.*, 2011);** **McGaugh, "Memory — a century of
+  consolidation" (*Science*, 2000).** Sleep replay, *value*, and *emotional arousal* all preferentially
+  strengthen memories worth keeping.
+- **ML analogues:** **Schaul et al., "Prioritized Experience Replay" (arXiv:1511.05952, 2015)** —
+  replay by surprise/importance; **Park et al., Generative Agents (2023)** — an explicit importance
+  gate on what's elevated; **Zhong et al., "MemoryBank" (AAAI 2024)** — Ebbinghaus-decay where
+  reused/important memories are reinforced and neglected ones fade.
+
+  **Design consequence:** persistence should be *earned* — score decisions by stakes, reuse, and
+  novelty; only high-scorers stay hot. (Currently approximated by feedback + recency; a dedicated
+  importance score is the next increment.)
+
+### 9c. Forgetting is a feature — demote, don't delete (`forget.go`, shipped)
+- **Bjork & Bjork, "A New Theory of Disuse" (1992).** Two independent strengths: **storage** (durable,
+  only grows) and **retrieval** (fluctuates with use/disuse). "Forgetting" = low retrievability, not
+  erasure. This is the core model behind `retention()`.
+- **Richards & Frankland, "The Persistence and Transience of Memory" (*Neuron*, 2017).** Active
+  forgetting is *adaptive* — shedding outdated detail improves memory-guided decisions and prevents
+  overfitting.
+- **Anderson, Bjork & Bjork, "Remembering Can Cause Forgetting" (*JEP:LMC*, 1994).** Retrieving some
+  items *suppresses* competitors — keeping everything actively *hurts* recall of what matters.
+- **ML analogues:** **McCloskey & Cohen, catastrophic interference (1989)** (the failure mode of
+  *unmanaged* forgetting); **LRU/LFU eviction** as engineered forgetting in bounded memory systems.
+
+  **Design consequence — implemented:** `retention()` computes live retrievability from age-since-use,
+  reinforced by helpful/used feedback, eroded by wrong/not-relevant. Below `forget.floor` a decision is
+  **demoted out of hot recall but kept in the store** (Bjork: retrievability low, storage intact) and
+  **revives when reinforced**. `POST /consolidate` reports hot vs cold with reasons; nothing is ever
+  deleted. Honest-scope: at scale, cold decisions should be *archived out of the hot index* rather than
+  re-scored every recall — current impl re-scores all (fine at this size).
+
+---
+
 ## Provenance & honesty
 
 All papers above were verified against primary or authoritative sources (arXiv, JMLR, DBLP,
@@ -188,7 +250,6 @@ et al., MIT Press, 2009) — both real and canonical; re-verify exact pages befo
 The design's core thesis — *capture the why, retrieve-and-advise, abstain under uncertainty, and
 refuse to fake a causal correctness signal* — is built from these published results. The synthesis
 is ours; the pieces are real.
-```
 
 ### Reference index
 
@@ -215,6 +276,22 @@ is ours; the pieces are real.
 | Wang et al. 2022 | E5 (arXiv:2212.03533) | §6 query/passage prefixes |
 | Izacard et al. 2021 | Contriever (arXiv:2112.09118) | §6 dense retrieval |
 | Nussbaum et al. 2024 | Nomic Embed (arXiv:2402.01613) | §6 nomic-embed-text |
-| Park et al. 2023 | Generative Agents (arXiv:2304.03442) | §7 memory stream |
+| Park et al. 2023 | Generative Agents (arXiv:2304.03442) | §7 memory stream · §9b importance gate |
 | Packer et al. 2023 | MemGPT (arXiv:2310.08560) | §7 tiered memory |
 | Liu et al. 2023 | Lost in the Middle (arXiv:2307.03172) | §8 inject few |
+| Tulving & Thomson 1973 | Encoding specificity (*Psych. Review*) | §9a context = cue |
+| Godden & Baddeley 1975 | Context-dependent memory (*Br. J. Psych.*) | §9a context prior |
+| Bower 1981 | Mood and memory (*American Psychologist*) | §9a state-dependent |
+| Gao et al. 2025 | CDMem (NAACL) | §9a context-keyed agent memory |
+| McClelland, McNaughton & O'Reilly 1995 | Complementary Learning Systems (*Psych. Review*) | §9b consolidation |
+| Squire & Alvarez 1995 | Standard consolidation (*Curr. Opin. Neurobiol.*) | §9b consolidation |
+| Frey & Morris 1997 | Synaptic tagging & LTP (*Nature*) | §9b salience gates keeping |
+| Diekelmann & Born 2010 | Memory function of sleep (*Nat. Rev. Neurosci.*) | §9b consolidation |
+| Castel et al. 2011 | Value-directed remembering (*Dev. Psych.*) | §9b importance |
+| McGaugh 2000 | A century of consolidation (*Science*) | §9b arousal = importance |
+| Schaul et al. 2015 | Prioritized Experience Replay (arXiv:1511.05952) | §9b importance replay |
+| Zhong et al. 2024 | MemoryBank (AAAI) | §9b/9c decay + reinforce |
+| Bjork & Bjork 1992 | A New Theory of Disuse | §9c storage vs retrieval strength |
+| Richards & Frankland 2017 | Persistence & Transience (*Neuron*) | §9c adaptive forgetting |
+| Anderson, Bjork & Bjork 1994 | Remembering Can Cause Forgetting (*JEP:LMC*) | §9c keeping-all hurts |
+| McCloskey & Cohen 1989 | Catastrophic interference | §9c unmanaged forgetting |
