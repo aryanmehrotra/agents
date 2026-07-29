@@ -111,6 +111,15 @@
   .tservice .tset{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
   .pinput{width:130px;padding:5px 8px;font-size:12.5px;font-family:var(--mono)}
   code{font-family:var(--mono);font-size:12px;background:var(--chip);padding:1px 5px;border-radius:5px}
+  /* value */
+  .vhero{background:linear-gradient(135deg,color-mix(in srgb,var(--good) 20%,var(--panel2)),var(--panel));
+         border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .vhero .n{font-size:34px;font-weight:800;color:var(--good);letter-spacing:-1px}
+  .vhero .l{color:var(--muted);font-size:13px;margin-top:2px}
+  .vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}
+  .vcard{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:14px}
+  .vcard .n{font-size:23px;font-weight:750;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .vcard .l{color:var(--muted);font-size:12px;margin-top:3px}
 </style>
 </head>
 <body>
@@ -139,9 +148,17 @@
     <button class="tab" data-tab="hier">🗂 Hierarchy</button>
     <button class="tab" data-tab="ask">Ask</button>
     <button class="tab" data-tab="teach">Teach</button>
+    <button class="tab" data-tab="value">📈 Value</button>
     <button class="tab" data-tab="tune">Tune</button>
     <button class="tab" data-tab="activity">Activity</button>
   </nav>
+
+  <!-- VALUE -->
+  <section class="card hide" data-panel="value">
+    <div class="vhero"><div class="n" id="v-net">—</div><div class="l">estimated <b>net tokens saved</b> — knowledge surfaced minus injection cost</div></div>
+    <div class="vgrid" id="v-grid"></div>
+    <div class="hint" id="v-note" style="margin-top:12px"></div>
+  </section>
 
   <!-- BRAIN -->
   <section class="card" data-panel="brain" style="padding:0;overflow:hidden">
@@ -196,6 +213,8 @@
     <div class="knob"><div class="k"><b>Precision floor</b><br><span>How relevant before it surfaces (higher = stricter, more "nothing")</span></div><input id="cfg-retrieve.precision_floor" type="number" step="0.05" min="0" max="1"/></div>
     <div class="knob"><div class="k"><b>Top-K</b><br><span>Max decisions surfaced at once</span></div><input id="cfg-retrieve.top_k" type="number" step="1" min="1" max="20"/></div>
     <div class="knob"><div class="k"><b>Wrong → quarantine</b><br><span>How many "wrong" marks before it's pulled</span></div><input id="cfg-feedback.wrong_quarantine_at" type="number" step="1" min="1"/></div>
+    <div class="knob"><div class="k"><b>Tokens per surfaced item</b><br><span>Value metric: est. tokens each injected decision costs</span></div><input id="cfg-metrics.tokens_per_item" type="number" step="5" min="0"/></div>
+    <div class="knob"><div class="k"><b>Tokens saved per helpful hit</b><br><span>Value metric: est. tokens a prevented mistake would've cost</span></div><input id="cfg-metrics.tokens_per_prevented" type="number" step="100" min="0"/></div>
     <div style="margin-top:14px"><button class="btn" id="tune-btn">Save knobs</button> <button class="btn ghost" id="tune-reload">Reload current</button></div>
   </section>
 
@@ -234,7 +253,7 @@ function renderAct(){const a=JSON.parse(localStorage.getItem(LOGKEY)||"[]");
 // ---- tabs ----
 $$(".tab").forEach(b=>b.onclick=()=>{$$(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");
   $$("[data-panel]").forEach(p=>p.classList.toggle("hide",p.dataset.panel!==b.dataset.tab));
-  if(b.dataset.tab==="tune")loadCfg(); if(b.dataset.tab==="brain")loadBrain(); if(b.dataset.tab==="hier")loadHier();});
+  if(b.dataset.tab==="tune")loadCfg(); if(b.dataset.tab==="brain")loadBrain(); if(b.dataset.tab==="hier")loadHier(); if(b.dataset.tab==="value")loadStats();});
 $("#dismiss").onclick=(e)=>{e.preventDefault();$("#guide").classList.add("hide");localStorage.setItem("orgmem.guide","hidden");};
 if(localStorage.getItem("orgmem.guide")==="hidden")$("#guide").classList.add("hide");
 
@@ -281,7 +300,7 @@ $("#teach-btn").onclick=async()=>{
 };
 
 // ---- TUNE / config ----
-const CFG=["retrieve.precision_floor","retrieve.top_k","feedback.wrong_quarantine_at"];
+const CFG=["retrieve.precision_floor","retrieve.top_k","feedback.wrong_quarantine_at","metrics.tokens_per_item","metrics.tokens_per_prevented"];
 async function loadCfg(){for(const k of CFG){try{const j=await api("/config?key="+encodeURIComponent(k));
   if(j.value!=="")$("#cfg-"+CSS.escape(k)).value=j.value;}catch(e){}}}
 $("#tune-reload").onclick=loadCfg;
@@ -424,6 +443,26 @@ function renderHier(){
   const gen=$("#hier-gen"); if(gen)gen.onclick=async()=>{await api("/hierarchy/propose",{method:"POST"}); await loadHier();};
 }
 $("#hier-reset").onclick=async()=>{await api("/hierarchy/propose",{method:"POST"}); await loadHier();};
+
+// ---- VALUE (numerical benefit from the backend /stats) ----
+async function loadStats(){
+  try{const s=await api("/stats");
+    $("#v-net").textContent=(s.net_tokens_est>=0?"+":"")+Number(s.net_tokens_est).toLocaleString()+" tokens";
+    const prec=(s.helpful+s.wrong)?Math.round(s.precision_pct)+"%":"—";
+    const cards=[
+      [s.decisions,"decisions remembered"],
+      [s.recalls,"recalls served"],
+      [s.items_surfaced,"decisions surfaced"],
+      [Math.round(s.inject_nothing_pct)+"%","stayed silent (restraint)"],
+      [prec,"precision (helpful vs wrong)"],
+      [Number(s.tokens_saved_est).toLocaleString(),"tokens saved (est)"],
+      [Number(s.tokens_injected_est).toLocaleString(),"tokens injected (cost)"],
+      [s.helpful+" / "+s.wrong,"helpful / wrong feedback"],
+    ];
+    $("#v-grid").innerHTML=cards.map(c=>'<div class="vcard"><div class="n">'+c[0]+'</div><div class="l">'+c[1]+'</div></div>').join("");
+    $("#v-note").innerHTML='Estimates use two knobs (edit in <b>Tune</b>): <code>metrics.tokens_per_item</code> injected per surfaced decision, and <code>metrics.tokens_per_prevented</code> saved per helpful hit. Live Prometheus gauges <code>app_orgmem_*</code> scrape on the metrics port → Grafana (your "push"). A rigorous causal lift needs A/B withholding (roadmap).';
+  }catch(e){$("#v-grid").innerHTML='<div class="empty">⚠️ '+esc(e.message)+'</div>';}
+}
 
 renderAct(); loadBrain(); ping(); setInterval(ping,5000);
 $("#act-clear").onclick=()=>{localStorage.removeItem(LOGKEY);renderAct();};

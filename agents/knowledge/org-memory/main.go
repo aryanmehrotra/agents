@@ -43,6 +43,22 @@ func main() {
 	app.POST("/hierarchy/propose", proposeHandler)   // generate proposals for the yes/no flow
 	app.POST("/hierarchy/confirm", confirmRelationHandler) // yes/no on a proposed relation
 
+	// Value metrics — the JSON dashboard + Prometheus gauges (scrape on METRICS_PORT → Grafana).
+	app.GET("/stats", statsHandler)
+
+	for _, g := range [][2]string{
+		{"app_orgmem_decisions", "org-memory: decisions stored"},
+		{"app_orgmem_recalls_total", "org-memory: recalls served"},
+		{"app_orgmem_recall_empty_total", "org-memory: recalls returning nothing (correct restraint)"},
+		{"app_orgmem_items_surfaced_total", "org-memory: decisions surfaced"},
+		{"app_orgmem_tokens_injected_est", "org-memory: estimated tokens injected"},
+		{"app_orgmem_net_tokens_saved_est", "org-memory: estimated NET tokens saved"},
+		{"app_orgmem_feedback_helpful", "org-memory: helpful feedback"},
+		{"app_orgmem_feedback_wrong", "org-memory: wrong feedback"},
+	} {
+		app.Metrics().NewGauge(g[0], g[1])
+	}
+
 	app.Run()
 }
 
@@ -109,6 +125,8 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 		return nil, err
 	}
 
+	publishMetrics(ctx)
+
 	return map[string]any{
 		"items": items,
 		"count": len(items),
@@ -161,6 +179,8 @@ func feedbackHandler(ctx *gofr.Context) (any, error) {
 		return map[string]any{"error": err.Error()}, nil
 	}
 
+	publishMetrics(ctx)
+
 	return map[string]any{"ok": true}, nil
 }
 
@@ -198,6 +218,28 @@ func setConfigHandler(ctx *gofr.Context) (any, error) {
 	}
 
 	return map[string]any{"ok": true, "key": in.Key, "value": in.Value, "scope": scope}, nil
+}
+
+// statsHandler (GET /stats): the numerical value dashboard, and publishes the Prometheus gauges.
+func statsHandler(ctx *gofr.Context) (any, error) {
+	publishMetrics(ctx)
+
+	return engine.ValueStats(), nil
+}
+
+// publishMetrics mirrors the value stats into GoFr's Prometheus gauges (scraped on METRICS_PORT).
+func publishMetrics(ctx *gofr.Context) {
+	s := engine.ValueStats()
+	m := ctx.Metrics()
+
+	m.SetGauge("app_orgmem_decisions", float64(s.Decisions))
+	m.SetGauge("app_orgmem_recalls_total", float64(s.Recalls))
+	m.SetGauge("app_orgmem_recall_empty_total", float64(s.RecallsEmpty))
+	m.SetGauge("app_orgmem_items_surfaced_total", float64(s.ItemsSurfaced))
+	m.SetGauge("app_orgmem_tokens_injected_est", float64(s.TokensInjected))
+	m.SetGauge("app_orgmem_net_tokens_saved_est", float64(s.NetTokens))
+	m.SetGauge("app_orgmem_feedback_helpful", float64(s.Helpful))
+	m.SetGauge("app_orgmem_feedback_wrong", float64(s.Wrong))
 }
 
 // hierarchyHandler (GET /hierarchy): the persisted relations + scope tags in use, for the tree view.
