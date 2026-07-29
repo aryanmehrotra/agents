@@ -116,6 +116,8 @@
          border:1px solid var(--line);border-radius:12px;padding:18px 20px}
   .vhero .n{font-size:34px;font-weight:800;color:var(--good);letter-spacing:-1px}
   .vhero .l{color:var(--muted);font-size:13px;margin-top:2px}
+  .vsub{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px}
+  .vcard .n.neg{color:var(--bad)}
   .vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}
   .vcard{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:14px}
   .vcard .n{font-size:23px;font-weight:750;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
@@ -196,8 +198,10 @@
 
   <!-- VALUE -->
   <section class="card hide" data-panel="value">
-    <div class="vhero"><div class="n" id="v-net">—</div><div class="l">estimated <b>net tokens saved</b> — knowledge surfaced minus injection cost</div></div>
+    <div class="vhero"><div class="n" id="v-hero">—</div><div class="l" id="v-hero-l">—</div></div>
     <div class="vgrid" id="v-grid"></div>
+    <div class="vsub">Token ROI — <b>rough estimate, not a measured saving</b></div>
+    <div class="vgrid" id="v-tokens"></div>
     <div class="hint" id="v-note" style="margin-top:12px"></div>
   </section>
 
@@ -495,21 +499,27 @@ $("#hier-reset").onclick=async()=>{await api("/hierarchy/propose",{method:"POST"
 // ---- VALUE (numerical benefit from the backend /stats) ----
 async function loadStats(){
   try{const s=await api("/stats");
-    $("#v-net").textContent=(s.net_tokens_est>=0?"+":"")+Number(s.net_tokens_est).toLocaleString()+" tokens";
-    const prec=(s.helpful+s.wrong)?Math.round(s.precision_pct)+"%":"—";
+    const prec=(s.helpful+s.wrong)?Math.round(s.precision_pct)+"%":"no wrong hits yet";
+    // HONEST hero: a real, measured number — decisions the memory can surface — not a fabricated ROI.
+    $("#v-hero").textContent=Number(s.decisions).toLocaleString();
+    $("#v-hero-l").innerHTML=`<b>decisions remembered</b> — your team's why, recall-ready · ${s.recalls} recalls · ${Math.round(s.inject_nothing_pct)}% correctly silent · ${prec} precision`;
     const cards=[
-      [s.decisions,"decisions remembered"],
       [s.recalls,"recalls served"],
       [s.items_surfaced,"decisions surfaced"],
       [Math.round(s.inject_nothing_pct)+"%","stayed silent (restraint)"],
       [prec,"precision (helpful vs wrong)"],
-      [Number(s.tokens_saved_est).toLocaleString(),"tokens saved (est)"],
-      [Number(s.tokens_injected_est).toLocaleString(),"tokens injected (cost)"],
+      [s.hot+" / "+s.cold,"memory health — hot / cold"],
       [s.helpful+" / "+s.wrong,"helpful / wrong feedback"],
-      [s.hot+" / "+s.cold,"memory health — hot / cold (fading)"],
     ];
     $("#v-grid").innerHTML=cards.map(c=>'<div class="vcard"><div class="n">'+c[0]+'</div><div class="l">'+c[1]+'</div></div>').join("");
-    $("#v-note").innerHTML='Estimates use two knobs (edit in <b>Tune</b>): <code>metrics.tokens_per_item</code> injected per surfaced decision, and <code>metrics.tokens_per_prevented</code> saved per helpful hit. Live Prometheus gauges <code>app_orgmem_*</code> scrape on the metrics port → Grafana (your "push"). A rigorous causal lift needs A/B withholding (roadmap).';
+    // Token estimates: separated, honestly labeled, correct sign/colour (negative net = red, not green).
+    const net=Number(s.net_tokens_est);
+    $("#v-tokens").innerHTML=[
+      [Number(s.tokens_saved_est).toLocaleString(),"saved (est)",false],
+      [Number(s.tokens_injected_est).toLocaleString(),"injected / cost (est)",false],
+      [(net>=0?"+":"")+net.toLocaleString(),"net (est)",net<0],
+    ].map(c=>`<div class="vcard"><div class="n ${c[2]?'neg':''}">${c[0]}</div><div class="l">${c[1]}</div></div>`).join("");
+    $("#v-note").innerHTML='⚠️ The token figures are a <b>rough illustrative estimate</b> from two guessed constants (<b>Tune</b>: <code>metrics.tokens_per_item</code>, <code>metrics.tokens_per_prevented</code>) — <b>not a measured saving</b>. The savings side counts only explicit 👍 feedback while cost accrues on every surfaced item, so net reads negative until feedback builds up. A trustworthy value number needs A/B withholding (roadmap) — until then, trust the operational metrics above, not this.';
   }catch(e){$("#v-grid").innerHTML='<div class="empty">⚠️ '+esc(e.message)+'</div>';}
 }
 
