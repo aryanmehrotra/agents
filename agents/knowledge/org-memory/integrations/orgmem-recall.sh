@@ -19,7 +19,34 @@ import sys, json
 try: d = json.load(sys.stdin)["data"]
 except Exception: sys.exit(0)
 items = d.get("items", [])
-if not items: sys.exit(0)
+ask = d.get("ask")
+
+# THE FEEDBACK LOOP. org-memory tracks what fraction of recent recalls came back confident and asks a
+# question when that ratio slips below target, or when THIS recall was one it was unsure about.
+# Rendered short on purpose: a feedback request that needs reading is one that gets ignored.
+def render_ask():
+    if not ask: return
+    print("\n---")
+    print("❓ **" + ask["question"] + "**")
+    opts = " · ".join("`" + o + "`" for o in ask.get("options", []))
+    if ask.get("decision_id"):
+        print("   " + opts + "  →  `POST /feedback {\"decision_id\":\"" + ask["decision_id"] + "\",\"signal\":\"…\"}`")
+        print("   _`not_relevant` = bad match (the rule may still be true) · `wrong` = the rule itself is false (retires it)_")
+    elif ask.get("query"):
+        # A near-miss abstention has no decision to rate, so its answer goes to a different endpoint.
+        # This used to render two options with no way at all to submit either.
+        body = json.dumps({"query": ask["query"], "have_rule": True})
+        print("   " + opts + "  →  `POST /gaps/resolve " + body + "`  (have_rule false = correctly silent)")
+        print("   _the whole point: `have_rule:true` means we DO have this rule and it was not found_")
+    else:
+        print("   " + opts)
+
+# An abstention can still carry a question. "I found nothing, but something came close — should I
+# have known it?" is the only way a GAP in the corpus ever becomes visible, since ranking feedback
+# can only ever talk about things that were surfaced.
+if not items:
+    render_ask()
+    sys.exit(0)
 weak = bool(d.get("weak"))
 top = items[0]["decision"]
 rest = items[1:]
@@ -40,4 +67,5 @@ else:
         dd = it["decision"]; line = "- " + dd["what"]
         if dd.get("why"): line += " — " + dd["why"]
         print(line)
+render_ask()
 ' 2>/dev/null || true
