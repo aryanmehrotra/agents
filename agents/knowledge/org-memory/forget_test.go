@@ -2,9 +2,58 @@ package main
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 )
+
+// TestHalfLifeMeansHalfLife asserts the property a knob named `halflife` must satisfy: at exactly H
+// days, retention is 1/2. Both decay curves were written as exp(-t/H), which has half-life H·ln2 —
+// so `halflife_days = 90` really produced a 62.4-day half-life, and the recency curve's documented
+// "≈30-day half-life" was 20.8 days. Every such knob was off from its own name by ln2 ≈ 0.693,
+// invisibly, because nothing ever asserted the defining property. It does now.
+func TestHalfLifeMeansHalfLife(t *testing.T) {
+	for _, h := range []float64{21, 30, 90, 365} {
+		if got := halfLifeDecay(h, h); math.Abs(got-0.5) > 1e-9 {
+			t.Errorf("at t = half-life (%.0fd) retention must be 0.5, got %.4f", h, got)
+		}
+
+		if got := halfLifeDecay(2*h, h); math.Abs(got-0.25) > 1e-9 {
+			t.Errorf("at t = 2 half-lives (%.0fd) retention must be 0.25, got %.4f", 2*h, got)
+		}
+	}
+
+	if got := halfLifeDecay(0, 90); got != 1 {
+		t.Errorf("a zero-age decision is fully retained, got %.4f", got)
+	}
+
+	if got := halfLifeDecay(10, 0); got != 0 {
+		t.Errorf("a zero/negative half-life is a misconfiguration and must not score, got %.4f", got)
+	}
+}
+
+// TestRecencyAndRetentionAgreeOnAge guards the defect where the ranker and the forgetting layer
+// decayed the SAME quantity with different curves — 20.8 days against 62.4 — disagreeing 3× on one
+// decision in one scoring pass. They may carry different half-lives (they answer different
+// questions), but they must be the same FUNCTION, so setting the knobs equal makes them agree.
+func TestRecencyAndRetentionAgreeOnAge(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Set("rank.recency_halflife_days", "90") // match forget.halflife_days' default
+
+	now := time.Now()
+	d := Decision{Updated: now.AddDate(0, 0, -90)}
+
+	rec := recencyScore(d.Updated, now, cfg)
+	ret := retention(d, Stats{}, now, cfg)
+
+	if math.Abs(rec-ret) > 1e-9 {
+		t.Fatalf("same age + same half-life ⇒ same decay; recency=%.6f retention=%.6f", rec, ret)
+	}
+
+	if math.Abs(rec-0.5) > 1e-9 {
+		t.Fatalf("at exactly one half-life both must be 0.5, got %.6f", rec)
+	}
+}
 
 func containsID(items []RecalledItem, id string) bool {
 	for _, it := range items {
@@ -23,7 +72,7 @@ func TestRetentionDecaysWithDisuse(t *testing.T) {
 	now := time.Now()
 
 	fresh := Decision{Updated: now}
-	stale := Decision{Updated: now.AddDate(0, 0, -400)} // >4 half-lives old
+	stale := Decision{Updated: now.AddDate(0, 0, -500)} // 5.6 half-lives at H=90 → 2^-5.6 ≈ 0.021
 
 	rFresh := retention(fresh, Stats{}, now, cfg)
 	rStale := retention(stale, Stats{}, now, cfg)
@@ -33,7 +82,7 @@ func TestRetentionDecaysWithDisuse(t *testing.T) {
 	}
 
 	if rStale >= cfg.F("forget.floor", 0.03) {
-		t.Fatalf("a 400-day unused decision should fall below the forget floor; got %.3f", rStale)
+		t.Fatalf("a 500-day unused decision should fall below the forget floor; got %.3f", rStale)
 	}
 }
 
@@ -97,8 +146,10 @@ func TestForgetFloorDemotesButKeeps(t *testing.T) {
 		t.Fatalf("precondition: a fresh, relevant decision should surface; got %+v", fresh)
 	}
 
-	// age it past its half-life with no reinforcement → it should fall below the forget floor
-	d.Updated = time.Now().AddDate(0, 0, -400)
+	// age it well past its half-life with no reinforcement → below the forget floor.
+	// 500 days at H=90 is 5.6 half-lives (2^-5.6 ≈ 0.021 < the 0.03 floor). 400 days would NOT be
+	// enough: 4.4 half-lives ≈ 0.046. It used to be, only because the decay ran ln2 too fast.
+	d.Updated = time.Now().AddDate(0, 0, -500)
 	en.store.Put(d)
 
 	out, err := en.Recall(ctx, query)
@@ -152,5 +203,32 @@ func TestConsolidateReportsWithoutMutating(t *testing.T) {
 
 	if after := len(en.store.Active()); after != before {
 		t.Fatalf("Consolidate must not mutate the store: active %d → %d", before, after)
+	}
+}
+
+// TestNotRelevantDoesNotDecayADecision guards a category error with teeth.
+//
+// Relevance is a RELATION between a document and an information need, never a property the document
+// owns (Saracevic, JASIST 2007). So `not_relevant` — "this was a poor answer to what I asked" — says
+// nothing about whether the decision is true, and must never erode its retrievability. `wrong` is the
+// opposite: a claim about the decision itself, and the only signal allowed to fade it out of memory.
+//
+// Before this fix, retention penalised Wrong*2 + NotRelevant, so one bad match for one phrasing
+// decayed a correct decision for every future query.
+func TestNotRelevantDoesNotDecayADecision(t *testing.T) {
+	cfg := NewConfig()
+	now := time.Now()
+	d := Decision{Updated: now.AddDate(0, 0, -30)}
+
+	clean := retention(d, Stats{}, now, cfg)
+
+	// A pile of "bad match for my question" verdicts must leave the decision exactly as retrievable.
+	if got := retention(d, Stats{NotRelevant: 10}, now, cfg); got != clean {
+		t.Errorf("not_relevant must not decay a decision: %.4f vs %.4f — a retrieval miss is not evidence the rule is false", got, clean)
+	}
+
+	// A "this rule is false" verdict must.
+	if got := retention(d, Stats{Wrong: 2}, now, cfg); got >= clean {
+		t.Errorf("wrong MUST erode retrievability: %.4f vs %.4f", got, clean)
 	}
 }

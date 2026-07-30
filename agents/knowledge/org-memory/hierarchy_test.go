@@ -15,20 +15,20 @@ func TestHierarchyInheritanceInRecall(t *testing.T) {
 
 	// parent-level (core/docs) decision — scoped to the root only
 	_, _ = en.Capture(ctx, Decision{
-		What: "all services expose a health endpoint at /health", Why: "uniform ops", Scope: []string{"repo:zopnight"},
+		What: "all services expose a health endpoint at /health", Why: "uniform ops", Scope: []string{"repo:acme"},
 	})
 	// child-level decision
 	_, _ = en.Capture(ctx, Decision{
-		What: "aggregator batches clickhouse reads for health", Why: "perf", Scope: []string{"repo:zopnight", "service:aggregator"},
+		What: "aggregator batches clickhouse reads for health", Why: "perf", Scope: []string{"repo:acme", "service:aggregator"},
 	})
 
 	q := []string{"service:aggregator", "health endpoint"}
 
 	// BEFORE the tree exists, a service-scoped query should NOT pull the root-only decision
-	// (its scope repo:zopnight isn't in the context)... actually repo:zopnight IS in the query? No —
+	// (its scope repo:acme isn't in the context)... actually repo:acme IS in the query? No —
 	// the query is service:aggregator. Confirm inheritance changes the result.
 	en.SetParent("service:aggregator", "layer:backend")
-	en.SetParent("layer:backend", "repo:zopnight")
+	en.SetParent("layer:backend", "repo:acme")
 
 	out, err := en.Recall(ctx, q)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestHierarchyInheritanceInRecall(t *testing.T) {
 	}
 
 	if !sawParent {
-		t.Fatalf("a child-scope query must INHERIT the parent (repo:zopnight) decision; got %+v", out)
+		t.Fatalf("a child-scope query must INHERIT the parent (repo:acme) decision; got %+v", out)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestProposeAndConfirmPersist(t *testing.T) {
 	en := newTestEngine()
 	ctx := context.Background()
 
-	_, _ = en.Capture(ctx, Decision{What: "x", Scope: []string{"repo:zopnight", "service:agg"}})
-	_, _ = en.Capture(ctx, Decision{What: "y", Scope: []string{"repo:zopnight", "frontend:app"}})
+	_, _ = en.Capture(ctx, Decision{What: "x", Scope: []string{"repo:acme", "service:agg"}})
+	_, _ = en.Capture(ctx, Decision{What: "y", Scope: []string{"repo:acme", "frontend:app"}})
 
 	props := en.Propose()
 	if len(props) == 0 {
@@ -62,7 +62,7 @@ func TestProposeAndConfirmPersist(t *testing.T) {
 	// backend/frontend layers must be proposed as children of the root
 	var backendToRoot bool
 	for _, r := range props {
-		if r.Child == "layer:backend" && r.Parent == "repo:zopnight" {
+		if r.Child == "layer:backend" && r.Parent == "repo:acme" {
 			backendToRoot = true
 		}
 	}

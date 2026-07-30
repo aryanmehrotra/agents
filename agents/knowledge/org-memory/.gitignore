@@ -43,3 +43,6 @@ eval/v2c_judge_out.jsonl
 eval/v2c_judge_out_fable.jsonl
 eval/v2c_judge_map.json
 eval/v2_exec_final.jsonl
+
+# python bytecode from the eval harnesses
+eval/__pycache__/

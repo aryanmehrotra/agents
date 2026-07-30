@@ -81,23 +81,109 @@ func isScopeTag(s string) bool {
 	return strings.Contains(s, ":") && !strings.ContainsAny(s, " \t")
 }
 
-// hardFilterPrefixes are the facet kinds that act as HARD predicates (a wrong value = a wrong result),
-// as opposed to soft topical priors. Identity/provenance facets the caller explicitly asserts.
-var hardFilterPrefixes = []string{"author:", "kind:"}
+// alwaysHardPrefixes are facets that act as HARD predicates unconditionally — not configurable, not
+// disableable, not subject to `retrieve.hard_scope`.
+//
+// These are ISOLATION boundaries, not relevance hints. A result from the wrong tenant is not a
+// less-relevant result, it is a data leak, and the difference between those two things must not be
+// expressible as a tuning parameter. Saltzer & Schroeder (1975) name the two principles this encodes:
+// *fail-safe defaults* (the base case is denial, and isolation holds without anyone configuring it)
+// and *complete mediation* (every request is checked, with no path that skips the check). Leaving
+// tenancy to the soft-scope prior meant a config write — `retrieve.hard_scope=0`, which is the
+// DEFAULT — silently turned an isolation boundary into a ranking nudge, and the red-team duly found
+// sandbox data surfacing at rank #1 for another repo's query.
+var alwaysHardPrefixes = []string{"org:", "tenant:"}
+
+// defaultHardFacetPrefixes are the facet kinds that act as hard predicates by convention: a wrong
+// value is simply a wrong answer, so the item is excluded rather than down-weighted. Identity and
+// type facets that the CALLER explicitly asserts (Filtered-DiskANN, Gollapudi et al., WWW 2023 —
+// predicates belong in the search, not after it; Hearst, CACM 2006 — facets as correctness
+// constraints rather than browsing aids). Topical scope (repo:/service:/topic:) stays a SOFT prior,
+// deliberately, so a decision made in one repo can still surface in another when it genuinely applies.
+const defaultHardFacetPrefixes = "author:,kind:"
+
+// hardFacetPrefixes resolves the hard-predicate facet list: the always-hard isolation facets, plus
+// whatever the org configures. Configurable because which facets are "a wrong value = a wrong
+// answer" is a property of the org's tagging convention, not of this engine (Gate #0) — e.g. a corpus
+// where `table:` names a subject entity should treat it as hard, which is not knowable here.
+func hardFacetPrefixes(cfg *Config, chain ...string) []string {
+	out := append([]string(nil), alwaysHardPrefixes...)
+
+	for _, p := range strings.Split(cfg.Str("retrieve.hard_facet_prefixes", defaultHardFacetPrefixes, chain...), ",") {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+
+		if !strings.HasSuffix(p, ":") {
+			p += ":" // tolerate "table" for "table:" — the colon is syntax, not a decision
+		}
+
+		out = append(out, p)
+	}
+
+	return out
+}
 
 // hardFilterTags picks the hard-predicate facets out of a query's tags (lowercased).
-func hardFilterTags(tags []string) []string {
+func hardFilterTags(tags []string, cfg *Config, chain ...string) []string {
+	prefixes := hardFacetPrefixes(cfg, chain...)
+
 	var out []string
 
 	for _, s := range tags {
 		t := strings.ToLower(strings.TrimSpace(s))
-		for _, p := range hardFilterPrefixes {
+		for _, p := range prefixes {
 			if strings.HasPrefix(t, p) {
 				out = append(out, t)
 
 				break
 			}
 		}
+	}
+
+	return out
+}
+
+// isolationOK enforces tenancy from the DATA side, which is the direction that actually contains a
+// leak.
+//
+// hasAllTags checks the facets the QUERY asserts — it answers "did the caller ask for author:vikash
+// and is this his?". That is a correctness filter, and it is useless for isolation, because a caller
+// who simply omits the tenant tag asserts nothing and therefore filters nothing. Tenancy has to work
+// the other way round: a decision that CARRIES an isolation facet is invisible unless the query
+// carries the matching one. Untagged decisions stay shared, so a single-tenant deployment needs no
+// configuration at all — but the moment data is labelled, the label binds.
+//
+// This is fail-safe defaults (Saltzer & Schroeder 1975): the absence of an assertion denies access
+// rather than granting it. The previous behaviour was the inverse — sandbox decisions surfaced at
+// rank #1 for an unrelated repo's query, because scope was a soft prior and an absent tag simply
+// meant "no preference".
+func isolationOK(scope []string, queryTags map[string]bool) bool {
+	for _, s := range scope {
+		t := strings.ToLower(strings.TrimSpace(s))
+
+		for _, p := range alwaysHardPrefixes {
+			if !strings.HasPrefix(t, p) {
+				continue
+			}
+
+			if !queryTags[t] {
+				return false // labelled data, unlabelled (or wrongly labelled) request
+			}
+
+			break
+		}
+	}
+
+	return true
+}
+
+// lowerTagSet normalises a query's tags into a lookup set.
+func lowerTagSet(tags []string) map[string]bool {
+	out := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		out[strings.ToLower(strings.TrimSpace(t))] = true
 	}
 
 	return out

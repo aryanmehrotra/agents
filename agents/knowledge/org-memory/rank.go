@@ -11,8 +11,75 @@ import (
 type scored struct {
 	d    Decision
 	sim  float64 // cosine relevance to the query
+	lex  float64 // BM25 lexical relevance (0 when the hybrid is disabled)
 	spec int     // scope specificity (from scopeMatch)
 	st   Stats   // feedback counters
+}
+
+// hybridRelevance fuses the dense and lexical signals into the single relevance number the rest of
+// the ranker consumes, and returns it on the cosine scale so the floor, the fitted noise model and
+// every reported similarity keep meaning the same thing.
+//
+// Fusion is by RANK (Reciprocal Rank Fusion, Cormack/Clarke/Buettcher SIGIR 2009), because a cosine
+// and a BM25 score share no units — a value-space blend needs a normalisation constant that is
+// corpus-specific and silently lets one signal dominate when the corpus shifts. RRF has no such
+// constant. The fused rank order is then mapped back onto the ORIGINAL cosine values, so a document
+// promoted by lexical evidence inherits the cosine of the position it earned. This keeps a single
+// relevance scale for the gate rather than introducing a second one nothing else understands.
+func hybridRelevance(cands []scored, cfg *Config, chain ...string) {
+	w := cfg.F("rank.w_lexical", 0, chain...)
+	if w <= 0 || len(cands) < 2 {
+		return // hybrid disabled (default) — dense-only, byte-identical to before
+	}
+
+	kRRF := cfg.F("rank.rrf_k", 60, chain...)
+
+	// Quarantined and superseded decisions are candidates at this point (the surfaceable filter runs
+	// later, in rankAndFilter), and their cosines would otherwise enter the value pool below — letting
+	// a retired-as-wrong decision donate its relevance mass to a live one and lift it over the floor.
+	// Fuse only over decisions that could actually be surfaced.
+	live := make([]int, 0, len(cands))
+
+	for i := range cands {
+		// A NaN score must never enter the remap: rank order puts it arbitrarily, and it would then
+		// be ASSIGNED a real cosine from the pool while an honest document inherits the NaN and gets
+		// gated. The D6 guard downstream would reject the wrong document.
+		if math.IsNaN(cands[i].sim) || math.IsNaN(cands[i].lex) {
+			continue
+		}
+
+		if !cands[i].d.Quarantined && cands[i].d.SupersededBy == "" {
+			live = append(live, i)
+		}
+	}
+
+	if len(live) < 2 {
+		return
+	}
+
+	// RANKS, not just the value pool, must come from live candidates only. Excluding them from the
+	// remap alone was not enough: a quarantined decision still occupied a RANK POSITION, which shifts
+	// every live document's RRF score unevenly and can flip which live document wins. A
+	// retired-as-wrong decision must not decide the order of the ones that replaced it.
+	denseRank := rankIndex(len(live), func(k int) float64 { return cands[live[k]].sim })
+	lexRank := rankIndex(len(live), func(k int) float64 { return cands[live[k]].lex })
+
+	fused := make([]float64, len(live))
+	for k := range live {
+		fused[k] = 1/(kRRF+float64(denseRank[k]+1)) + w/(kRRF+float64(lexRank[k]+1))
+	}
+
+	// Sorted cosines of the live candidates: the value pool the fused order is mapped onto.
+	sims := make([]float64, 0, len(live))
+	for _, i := range live {
+		sims = append(sims, cands[i].sim)
+	}
+
+	sort.Sort(sort.Reverse(sort.Float64Slice(sims)))
+
+	for k, pos := range rankIndex(len(live), func(k int) float64 { return fused[k] }) {
+		cands[live[k]].sim = sims[pos]
+	}
 }
 
 // rankAndFilter turns candidates into the few items worth surfacing. Two proven rules:
@@ -25,7 +92,11 @@ type scored struct {
 //     relevant FIRST — because position matters ("lost in the middle": models attend to the ends).
 //
 // Feedback is a relevance nudge only (helpful/used boost, not_relevant demotes) — never correctness.
-func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem {
+//
+// It also returns the EFFECTIVE floor it applied (absolute or adaptive, whichever bound). Callers need
+// that number to describe an abstention honestly: "nothing cleared 0.65" is a measurement, whereas the
+// bare empty list invites the caller to invent a similarity of 0.
+func rankAndFilter(cands []scored, cfg *Config, chain ...string) ([]RecalledItem, float64, noiseModel) {
 	// Clamp topK at the USE site (defense-in-depth): an unbounded/negative top_k (e.g. a hostile or
 	// fat-fingered config write) previously flowed into make([]RecalledItem, 0, topK) and OOM-crashed
 	// the process, and a huge value turned recall into a whole-store dump. Bound it regardless of config.
@@ -43,10 +114,11 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	wImp := cfg.F("rank.w_importance", 0.3, chain...)
 	wRet := cfg.F("rank.w_retention", 0.3, chain...)
 	wAuth := cfg.F("rank.w_authority", 0.3, chain...)
+	wFb := cfg.F("rank.w_feedback", 0.3, chain...)
 	boost := cfg.F("feedback.boost_per_helpful", 0.1, chain...)
 	demote := cfg.F("feedback.demote_per_notrel", 0.1, chain...)
 
-	floor := gateFloor(cands, cfg, chain...)
+	floor, noise := gateFloorWithNoise(cands, cfg, chain...)
 	if floor < 0 { // a negative precision_floor would pass everything (a store-dump vector) — never allow it
 		floor = 0
 	}
@@ -58,10 +130,13 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	// `prior_cap` (≈0.01), so they break genuine near-ties WITHOUT ever burying a materially-more-
 	// relevant answer. This is the lesson the red-team drove home: a fixed cosine-band still let priors
 	// discard cosine *within* a band (recreating the burial and adding recency inversions); the robust
-	// form is to keep cosine primary everywhere and cap the total positive prior below the smallest
-	// cosine gap worth respecting. Negative feedback is NOT capped — a "not relevant" mark should still
-	// demote a wrong hit. Foundations: cascade ranking keeps relevance the gate (Wang/Lin/Metzler,
-	// SIGIR 2011); priors belong as small terms, not large additive offsets (Kraaij et al., SIGIR 2002).
+	// form is to keep cosine primary everywhere and hold the total positive prior below the smallest
+	// cosine gap worth respecting. The prior is a weighted MEAN of [0,1] signals scaled by prior_cap —
+	// bounded by construction, not by clamping a sum (see the loop below for why that distinction is
+	// the whole ballgame). Negative feedback is NOT bounded — a "not relevant" mark should still demote
+	// a wrong hit. Foundations: cascade ranking keeps relevance the gate (Wang/Lin/Metzler, SIGIR 2011);
+	// priors belong as small terms, not large additive offsets (Kraaij et al., SIGIR 2002); and
+	// heterogeneous signals must be normalized before combination (Lee SIGIR 1997).
 	priorCap := cfg.F("rank.prior_cap", 0.01, chain...)
 
 	now := time.Now()
@@ -80,7 +155,11 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 			continue // quarantined / superseded are kept in the store but never surfaced
 		}
 
-		if c.sim < floor {
+		// NaN fails every comparison, so `c.sim < floor` is FALSE for NaN and a NaN-scored candidate
+		// would sail through a gate whose entire claim is "bounded by construction", then sort
+		// arbitrarily. Unreachable today (cosine guards zero norms), but a file that promises bounds
+		// should not depend on a distant function's invariant to keep them.
+		if math.IsNaN(c.sim) || c.sim < floor {
 			continue // relevance gate → inject nothing when nothing is relevant enough
 		}
 
@@ -91,21 +170,64 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 			continue
 		}
 
-		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
-		auth := wAuth * authorityWeight(c.d.Scope, cfg, chain...)
+		// BOUNDED PRIOR — normalize, THEN bound (never clamp a raw sum).
+		//
+		// The intent has always been "cosine decides; the priors only break genuine near-ties". The
+		// previous form did not implement that intent: it summed the weighted priors and clamped the
+		// SUM at prior_cap. Recency + importance + retention alone always exceed a 0.01 cap, so the sum
+		// SATURATED for every candidate and each one received exactly +prior_cap. A constant offset
+		// cannot reorder anything, so authority/recency/retention were inert — measurably: score−sim was
+		// +0.010 for every item in every provenance, a CTO-authored review and an unattributed book
+		// alike. The eviction-guard and w_authority-toggle checks "passed" vacuously, because a uniform
+		// offset makes them unfalsifiable.
+		//
+		// The fix is the standard one for combining heterogeneous signals: NORMALIZE each signal onto a
+		// common scale before the linear combination, instead of letting an unnormalized sum run away
+		// and get clipped (Lee, "Analyses of Multiple Evidence Combination", SIGIR 1997; Montague &
+		// Aslam, "Relevance Score Normalization for Metasearch", CIKM 2001). Every component here is
+		// already defined on [0,1] — recency, importance, retention, authority.<role>, and a saturating
+		// feedback term — so their weighted MEAN is in [0,1], and prior_cap × that mean is a prior that
+		// is strictly bounded by prior_cap AND still carries ordering information. Relevance stays the
+		// primary key (cascade ranking, Wang/Lin/Metzler SIGIR 2011) and the priors stay small
+		// (Kraaij et al., SIGIR 2002) — the invariant the cap was there to protect is now enforced by
+		// construction rather than by a clamp that destroyed the signal it was meant to bound.
+		pos, wsum := 0.0, 0.0
 
-		prior := wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
-		capped := prior
-		if capped > priorCap { // bound only the POSITIVE nudge; negative feedback may still demote freely
-			capped = priorCap
+		addPrior := func(w, v float64) {
+			if w <= 0 {
+				return // a zeroed weight drops the signal AND its share of the mean (a real toggle)
+			}
+
+			pos += w * clamp01(v)
+			wsum += w
 		}
 
-		score := wRel*c.sim + capped
+		addPrior(wRec, recencyScore(c.d.Updated, now, cfg, chain...))
+		addPrior(wImp, importance(c.spec, cfg, chain...))
+		addPrior(wRet, ret)
+		addPrior(wAuth, authorityWeight(c.d.Scope, cfg, chain...))
+		// Positive feedback saturates (1−e^−x, as in retention): a few helpful/used signals count,
+		// the hundredth adds almost nothing — so a popular decision can never buy its way up the list.
+		addPrior(wFb, 1-math.Exp(-boost*float64(c.st.Helpful+c.st.Used)))
+
+		priorNorm := 0.0
+		if wsum > 0 {
+			priorNorm = pos / wsum // weighted mean of [0,1] signals ⇒ itself in [0,1]
+		}
+
+		// Negative feedback stays OUTSIDE the bound, deliberately: a "not relevant" mark must be able to
+		// push a wrong hit below its cosine neighbours, which a ≤prior_cap nudge could never do.
+		demotion := demote * float64(c.st.NotRelevant)
+
+		score := wRel*c.sim + priorCap*priorNorm - demotion
 
 		rows = append(rows, row{
-			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
+			item: RecalledItem{
+				Decision: c.d, Score: round(score), Similarity: round(c.sim),
+				Guidance: render(c.d, cfg, chain...),
+			},
 			sim:   c.sim,
-			prior: prior,
+			prior: priorNorm - demotion, // ordering key for the RRF prior list (demotion kept visible)
 			score: score,
 		})
 	}
@@ -136,7 +258,7 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 		out = append(out, rows[i].item)
 	}
 
-	return out
+	return out, floor, noise
 }
 
 // gateFloor computes the relevance bar a candidate must clear. It is the MAX of:
@@ -151,15 +273,33 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 // default 2.0) is a near-universal knob; set it ≤ 0 to disable adaptation and use the absolute floor
 // alone. Needs a minimum sample (retrieve.adaptive_min_n, default 8) for σ to mean anything.
 func gateFloor(cands []scored, cfg *Config, chain ...string) float64 {
-	floor := cfg.F("retrieve.precision_floor", 0.30, chain...)
-	z := cfg.F("retrieve.adaptive_z", 0, chain...)
-	minN := cfg.I("retrieve.adaptive_min_n", 8, chain...)
+	floor, _ := gateFloorWithNoise(cands, cfg, chain...)
+	return floor
+}
 
-	if z <= 0 {
-		return floor
-	}
+// gateFloorWithNoise is gateFloor plus the fitted noise model, so callers that need to describe their
+// confidence (recall's `weak` signal) use the SAME model that made the admit/reject decision rather
+// than a second, unrelated heuristic. Those two disagreeing is how the old `weak` flag ended up
+// firing on 16/32 correct answers.
+func gateFloorWithNoise(cands []scored, cfg *Config, chain ...string) (float64, noiseModel) {
+	floor := cfg.F("retrieve.precision_floor", 0.30, chain...)
+
+	// The adaptive floor is expressed as a FALSE-INJECT BUDGET: "at most this fraction of irrelevant
+	// decisions may clear the gate by chance." That is a quantity an operator can reason about and
+	// that transfers across corpora and embedding models — unlike the sigma count it replaces, which
+	// was set to 2.0 because 2 is a conventional number of sigmas. Set ≤0 to disable adaptation and
+	// use the absolute floor alone. Foundations: score-distribution thresholding (Arampatzis, Kamps &
+	// Robertson, SIGIR 2009); signal-to-noise normalisation (Arampatzis & Kamps, CIKM 2009).
+	alpha := cfg.F("retrieve.max_false_inject_rate", 0, chain...)
+
+	// A scale estimated from a handful of points is itself noise: the relative standard error of σ̂ is
+	// ~1/√(2(n−1)) — 27% at n=8, 13% at n=30 — and MAD is only ~37% efficient at the normal, so it
+	// wants MORE samples, not fewer. The old default of 8 let a 27%-uncertain scale set a threshold
+	// and call it calibration.
+	minN := cfg.I("retrieve.adaptive_min_n", 30, chain...)
 
 	sims := make([]float64, 0, len(cands))
+
 	for _, c := range cands {
 		if c.d.Quarantined || c.d.SupersededBy != "" {
 			continue // background = only surfaceable decisions
@@ -168,33 +308,17 @@ func gateFloor(cands []scored, cfg *Config, chain ...string) float64 {
 		sims = append(sims, c.sim)
 	}
 
-	if len(sims) < minN {
-		return floor // too few to estimate a spread; fall back to the absolute floor
+	noise := fitNoiseModel(sims, minN)
+
+	if alpha <= 0 || !noise.ok {
+		return floor, noise
 	}
 
-	mean, sd := meanStd(sims)
-	if adaptive := mean + z*sd; adaptive > floor {
-		return adaptive
+	if adaptive, ok := noise.scoreAtTailProb(alpha); ok && adaptive > floor {
+		return adaptive, noise
 	}
 
-	return floor
-}
-
-// meanStd returns the mean and population standard deviation of xs (len(xs) > 0 assumed by caller).
-func meanStd(xs []float64) (mean, std float64) {
-	for _, x := range xs {
-		mean += x
-	}
-
-	mean /= float64(len(xs))
-
-	var v float64
-	for _, x := range xs {
-		d := x - mean
-		v += d * d
-	}
-
-	return mean, math.Sqrt(v / float64(len(xs)))
+	return floor, noise
 }
 
 // authorityWeight scores a decision by the SENIORITY/authority of its author — a CTO's judgment
@@ -240,44 +364,64 @@ func rankIndex(n int, key func(int) float64) []int {
 	return rank
 }
 
-// recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.
-func recencyScore(t, now time.Time) float64 {
+// recencyScore decays with age since last touch, in (0,1]. Zero time → 0.
+//
+// NOTE — this signal OVERLAPS `retention` (forget.go), which decays the same quantity with its own
+// half-life. Both feed the prior, so freshness is counted twice, with two different weights and
+// previously two different (and mislabelled) curves — 20.8 days here against 62.4 there, disagreeing
+// by 3× on the same decision in the same scoring pass. They are now the same function with separate,
+// correctly-named knobs, because they answer different questions: recency asks "is this rule current?"
+// while retention asks "is this memory still retrievable?" (Bjork & Bjork's retrieval strength, which
+// also folds in reinforcement). Keeping both is a deliberate choice; the double-count is real and is
+// why `rank.w_recency` and `rank.w_retention` should not be tuned independently. See RESEARCH.md §11.
+func recencyScore(t, now time.Time, cfg *Config, chain ...string) float64 {
 	if t.IsZero() {
 		return 0
 	}
 
-	days := now.Sub(t).Hours() / 24
-	if days < 0 {
-		days = 0
-	}
-
-	return math.Exp(-days / 30.0)
+	return halfLifeDecay(ageDays(t, now), cfg.F("rank.recency_halflife_days", 21, chain...))
 }
 
-// importance rewards scope specificity — a repo/service rule matters more than a global one.
-func importance(spec int) float64 {
-	switch {
-	case spec <= 0:
+// importance rewards scope specificity — a repo/service rule matters more than a global one. The
+// saturation point (how many scope tags count as "fully specific") is a knob, not a literal: what
+// counts as specific is a property of the org's tagging convention, not of this engine.
+func importance(spec int, cfg *Config, chain ...string) float64 {
+	full := cfg.F("rank.importance_saturation", 3, chain...)
+	if spec <= 0 || full <= 0 {
 		return 0
-	case spec >= 3:
-		return 1
-	default:
-		return float64(spec) / 3.0
 	}
+
+	return clamp01(float64(spec) / full)
 }
 
-// render is the advice line an editor/agent injects — what, then the why, then the source.
-func render(d Decision) string {
+// render is the advice line an agent injects — what, then the why, then the source.
+//
+// Everything here is attacker-controllable in an open deployment (`/capture` accepts what/why/source
+// verbatim), and it lands directly in an agent's context, so rendering is a security boundary rather
+// than formatting. Two rules, see trust.go for why:
+//   - text is sanitised to a single line, so stored content cannot fabricate message structure;
+//   - the `[src: …]` marker is an ATTESTATION and is only emitted for org-verified provenance —
+//     otherwise the source is still shown, but explicitly marked unverified, because a marker the
+//     content itself can forge is worse than no marker at all.
+func render(d Decision, cfg *Config, chain ...string) string {
+	maxWhat := cfg.I("advise.max_what_runes", 400, chain...)
+	maxWhy := cfg.I("advise.max_why_runes", 600, chain...)
+	maxSrc := cfg.I("advise.max_source_runes", 120, chain...)
+
 	var b strings.Builder
 
-	b.WriteString(d.What)
+	b.WriteString(sanitizeAdvice(d.What, maxWhat))
 
-	if d.Why != "" {
-		b.WriteString(" — " + d.Why)
+	if why := sanitizeAdvice(d.Why, maxWhy); why != "" {
+		b.WriteString(" — " + why)
 	}
 
-	if d.Source != "" {
-		b.WriteString("  [src: " + d.Source + "]")
+	if src := sanitizeAdvice(d.Source, maxSrc); src != "" {
+		if trustedProvenance(d.Provenance, cfg, chain...) {
+			b.WriteString("  [src: " + src + "]")
+		} else {
+			b.WriteString("  [unverified src: " + src + "]")
+		}
 	}
 
 	return b.String()
