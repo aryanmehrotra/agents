@@ -68,7 +68,9 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 
 	type row struct {
 		item  RecalledItem
-		score float64
+		sim   float64 // raw cosine (relevance list key)
+		prior float64 // blended prior (prior list key)
+		score float64 // capped-mode composite
 	}
 
 	var rows []row
@@ -93,16 +95,38 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 		auth := wAuth * authorityWeight(c.d.Scope, cfg, chain...)
 
 		prior := wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
-		if prior > priorCap { // bound only the POSITIVE nudge; negative feedback may still demote freely
-			prior = priorCap
+		capped := prior
+		if capped > priorCap { // bound only the POSITIVE nudge; negative feedback may still demote freely
+			capped = priorCap
 		}
 
-		score := wRel*c.sim + prior
+		score := wRel*c.sim + capped
 
 		rows = append(rows, row{
 			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
+			sim:   c.sim,
+			prior: prior,
 			score: score,
 		})
+	}
+
+	// Fusion mode. "capped" (default) = relevance-primary with a bounded prior tie-breaker.
+	// "rrf" = Reciprocal Rank Fusion (Cormack, Clarke & Buettcher, SIGIR 2009): fuse independent ranked
+	// lists (relevance, prior) by Σ wᵢ/(k+rankᵢ). Rank-based ⇒ scale-immune (no score-magnitude can
+	// dominate), but it also discards cosine MAGNITUDE, so we weight the relevance list heavily and keep
+	// it selectable rather than forced — the two are compared empirically before either is made default.
+	if strings.EqualFold(strings.TrimSpace(cfg.Str("rank.mode", "capped", chain...)), "rrf") {
+		k := cfg.F("rank.rrf_k", 60, chain...)
+		rw := cfg.F("rank.rrf_w_relevance", 1.0, chain...)
+		pw := cfg.F("rank.rrf_w_prior", 0.2, chain...)
+
+		relRank := rankIndex(len(rows), func(i int) float64 { return rows[i].sim })
+		priRank := rankIndex(len(rows), func(i int) float64 { return rows[i].prior })
+
+		for i := range rows {
+			rows[i].score = rw/(k+float64(relRank[i]+1)) + pw/(k+float64(priRank[i]+1))
+			rows[i].item.Score = round(rows[i].score)
+		}
 	}
 
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
@@ -195,6 +219,25 @@ func authorityWeight(scope []string, cfg *Config, chain ...string) float64 {
 	}
 
 	return 0
+}
+
+// rankIndex returns, for each item i, its 0-based position when the n items are ordered by key(i)
+// descending — i.e. the highest key gets rank 0. Used to build the per-signal ranked lists that
+// Reciprocal Rank Fusion (Cormack et al. 2009) fuses.
+func rankIndex(n int, key func(int) float64) []int {
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+
+	sort.SliceStable(order, func(a, b int) bool { return key(order[a]) > key(order[b]) })
+
+	rank := make([]int, n)
+	for pos, idx := range order {
+		rank[idx] = pos
+	}
+
+	return rank
 }
 
 // recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.
