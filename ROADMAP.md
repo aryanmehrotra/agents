@@ -26,6 +26,7 @@ auth, rate-limiting and resilience for free.
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 - **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
 - **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
+- **release-notes-agent** — drafts release notes / a changelog from a set of merged pull requests; the model only proposes a one-line blurb + category per PR, and Go disposes — a PR number the model didn't receive is dropped (anti-hallucination), credential-shaped text (GitHub/AWS/Slack/OpenAI tokens, private keys) is redacted before it can reach the document, and an out-of-allow-list category falls back to the title's conventional-commit prefix; the final markdown is assembled deterministically in a fixed section order, never composed by the model
 
 ## Planned agents — the software development lifecycle
 
@@ -49,7 +50,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Review & release**
 - [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
-- [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
+- [x] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range ✅ *shipped*
 - [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
 
 **Operate**
@@ -67,6 +68,24 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-07-30** — added **release-notes-agent**: the review-&-release stage of the SDLC suite — it
+  drafts release notes / a changelog from a set of merged pull requests. Agents that draft release
+  notes, prepare deployment checklists and surface dependency/config risk tied to what actually
+  changed are part of 2026's software-delivery tooling, alongside modernization, review and
+  defect-resolution agents ([HackerNoon, "How AI Agents Are Reshaping Software Delivery in
+  2026"](https://hackernoon.com/how-ai-agents-are-reshaping-software-delivery-in-2026)). PR titles and
+  bodies are untrusted, pasted-from-GitHub text, so the model only proposes a one-line blurb and a
+  category per PR — nothing else — and Go disposes on every entry: any PR number in the model's reply
+  that wasn't in the caller's input is **dropped** (a model can't invent an extra PR), every entry is
+  scanned for credential-shaped text (GitHub/AWS/Slack/OpenAI tokens, PEM private keys, generic
+  `api_key`/`secret`/`password` assignments) and a match is replaced with `[REDACTED:<kind>]`
+  **before** it can reach the document, and a category outside the fixed allow-list falls back to a
+  deterministic read of the title's conventional-commit prefix. The changelog markdown itself is
+  assembled deterministically in Go — fixed section order, sorted by PR number — never composed by the
+  model, so a model that drops or reorders entries can't thin out a release note; a model outage still
+  yields a full changelog (from titles alone), just without the polished blurbs. Wired into the
+  orchestrator's new `release-notes` route, with a keyword fallback for release notes / changelog /
+  merged PRs / cut-a-release requests.
 - **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
   inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
   lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
