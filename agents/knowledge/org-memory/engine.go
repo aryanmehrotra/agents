@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -54,8 +55,37 @@ func NewEngine(s Store, e Embedder, cfg *Config) *Engine {
 		recent: newRecentQueries(cfg.I("gaps.recent_window", 2000)),
 	}
 	en.lexDirty.Store(true)
+	en.loadGaps()
 
 	return en
+}
+
+// loadGaps restores the work list from durable storage. Silent on absence or corruption: a memory
+// that refuses to boot because a secondary index is unreadable is worse than one that starts empty.
+func (en *Engine) loadGaps() {
+	raw := en.store.GetMeta(gapMetaKey)
+	if raw == "" {
+		return
+	}
+
+	var snap gapSnapshot
+	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
+		return
+	}
+
+	en.gaps.restore(snap)
+}
+
+// saveGaps persists the work list. Called after every change rather than on a timer, because the
+// thing being protected is exactly the state lost to an unplanned restart — and the payload is a few
+// KB, bounded by gaps.max_tracked.
+func (en *Engine) saveGaps() {
+	b, err := json.Marshal(en.gaps.snapshot())
+	if err != nil {
+		return
+	}
+
+	en.store.SetMeta(gapMetaKey, string(b))
 }
 
 // RecallHealth reports the rolling fraction of recalls that came back confident, and the sample
@@ -662,7 +692,9 @@ func (en *Engine) RecordFeedback(f Feedback) error {
 		// is not confused, it is confidently serving the nearest wrong thing. Attribute it back to the
 		// question and put it on the capture work list. See recentQueries in gaps.go.
 		if q, ok := en.recent.get(f.DecisionID); ok {
-			en.gaps.record(q, 0, 0, true, en.cfg.I("gaps.min_content_tokens", 3), time.Now().UTC())
+			if en.gaps.record(q, 0, 0, true, en.cfg.I("gaps.min_content_tokens", 3), time.Now().UTC()) {
+				en.saveGaps()
+			}
 		}
 
 		if en.store.Stats(f.DecisionID).Wrong >= en.cfg.I("feedback.wrong_quarantine_at", 2) {
@@ -904,8 +936,13 @@ func (en *Engine) recordGap(query string, diag RecallDiag, chain ...string) bool
 	near := diag.TopSimilarity > 0 &&
 		diag.Floor-diag.TopSimilarity < en.cfg.F("gaps.near_miss", 0.08, chain...)
 
-	return en.gaps.record(query, round(diag.TopSimilarity), round(diag.Floor), near,
+	recorded := en.gaps.record(query, round(diag.TopSimilarity), round(diag.Floor), near,
 		en.cfg.I("gaps.min_content_tokens", 3, chain...), time.Now().UTC())
+	if recorded {
+		en.saveGaps()
+	}
+
+	return recorded
 }
 
 // scopedStats is a decision's feedback as RANKING should see it: positive signals and `wrong` are
@@ -921,5 +958,10 @@ func (en *Engine) scopedStats(decisionID, query string) Stats {
 // ResolveGap records a human answer to a near-miss question. Returns false when the query is not on
 // the list (already resolved, evicted, or never recorded).
 func (en *Engine) ResolveGap(query string, haveRule bool) bool {
-	return en.gaps.resolve(query, haveRule, time.Now().UTC())
+	ok := en.gaps.resolve(query, haveRule, time.Now().UTC())
+	if ok {
+		en.saveGaps()
+	}
+
+	return ok
 }

@@ -374,3 +374,61 @@ func (g *gapLog) silenced(query string) bool {
 
 	return g.silent[q]
 }
+
+// gapSnapshot is the durable form of the work list.
+//
+// The gap log is the one piece of engine state that is EXPENSIVE TO REGENERATE. Everything else here
+// rebuilds itself in minutes of normal use — the confidence window refills, the sampler re-primes,
+// config re-calibrates on boot. But a gap entry is evidence accumulated over days: "this question was
+// asked five times and never answered" cannot be recovered by restarting, only by waiting for it to
+// happen again. Losing it on every restart quietly made the capture work list useless, because the
+// list never survived long enough to act on.
+//
+// The `silenced` set matters just as much: without it, a restart resurrects every question a human
+// already answered "correctly silent", and the system starts re-asking questions it was told to drop.
+type gapSnapshot struct {
+	Entries  []GapEntry `json:"entries"`
+	Silenced []string   `json:"silenced"`
+}
+
+const gapMetaKey = "gaps.v1"
+
+// snapshot serialises the current work list.
+func (g *gapLog) snapshot() gapSnapshot {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	out := gapSnapshot{Entries: make([]GapEntry, 0, len(g.entries))}
+	for _, e := range g.entries {
+		out.Entries = append(out.Entries, *e)
+	}
+
+	for q := range g.silent {
+		out.Silenced = append(out.Silenced, q)
+	}
+
+	sort.Slice(out.Entries, func(i, j int) bool { return out.Entries[i].Query < out.Entries[j].Query })
+	sort.Strings(out.Silenced)
+
+	return out
+}
+
+// restore replaces the log with a saved snapshot. Entries are re-keyed through the same normaliser
+// the live path uses, so a change to normalisation can never leave unreachable rows behind.
+func (g *gapLog) restore(s gapSnapshot) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for i := range s.Entries {
+		e := s.Entries[i]
+		if q := normalizeGapQuery(e.Query); q != "" {
+			g.entries[q] = &e
+		}
+	}
+
+	for _, q := range s.Silenced {
+		if n := normalizeGapQuery(q); n != "" {
+			g.silent[n] = true
+		}
+	}
+}

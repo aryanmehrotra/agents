@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent for org-memory.
+
+  Install:
+    cp integrations/com.aryanmehrotra.orgmem.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.aryanmehrotra.orgmem.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.aryanmehrotra.orgmem.plist
+
+  KeepAlive restarts it if it dies; RunAtLoad starts it at login. Edit the two paths below if the
+  repo lives somewhere else.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>            <string>com.aryanmehrotra.orgmem</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/raramuri/Projects/aryanmehrotra/agents/agents/knowledge/org-memory/integrations/orgmem-start.sh</string>
+  </array>
+  <key>WorkingDirectory</key> <string>/Users/raramuri/Projects/aryanmehrotra/agents/agents/knowledge/org-memory</string>
+  <key>RunAtLoad</key>        <true/>
+  <key>KeepAlive</key>        <true/>
+  <key>ThrottleInterval</key> <integer>30</integer>
+  <key>StandardOutPath</key>  <string>/tmp/orgmem.log</string>
+  <key>StandardErrorPath</key><string>/tmp/orgmem.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key> <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
