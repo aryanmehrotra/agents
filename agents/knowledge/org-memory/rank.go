@@ -53,20 +53,22 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 
 	forgetFloor := cfg.F("forget.floor", 0.03, chain...)
 
-	// Cascade ranking (Wang, Lin & Metzler, SIGIR 2011): relevance GATES recall; the weaker priors
-	// (authority, recency, importance, retention, feedback) only re-rank WITHIN a relevance band, never
-	// across one. band = ⌊cosine / bandWidth⌋; a decision in a higher cosine band always outranks a
-	// lower-band one regardless of its author's seniority, so a bounded static prior can no longer evict
-	// a materially-more-relevant answer (the additive-domination bug). Within a band, prior signals
-	// break the near-tie. bandWidth (≈0.05) is a live knob.
-	bandWidth := cfg.F("rank.band_width", 0.05, chain...)
+	// Relevance-primary ranking with a BOUNDED prior tie-breaker. Cosine orders results; the weaker
+	// priors (authority, recency, importance, retention, feedback) can only nudge the order by at most
+	// `prior_cap` (≈0.01), so they break genuine near-ties WITHOUT ever burying a materially-more-
+	// relevant answer. This is the lesson the red-team drove home: a fixed cosine-band still let priors
+	// discard cosine *within* a band (recreating the burial and adding recency inversions); the robust
+	// form is to keep cosine primary everywhere and cap the total positive prior below the smallest
+	// cosine gap worth respecting. Negative feedback is NOT capped — a "not relevant" mark should still
+	// demote a wrong hit. Foundations: cascade ranking keeps relevance the gate (Wang/Lin/Metzler,
+	// SIGIR 2011); priors belong as small terms, not large additive offsets (Kraaij et al., SIGIR 2002).
+	priorCap := cfg.F("rank.prior_cap", 0.01, chain...)
 
 	now := time.Now()
 
 	type row struct {
 		item  RecalledItem
-		band  int
-		score float64 // secondary (within-band) key: the prior blend
+		score float64
 	}
 
 	var rows []row
@@ -89,26 +91,21 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 
 		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
 		auth := wAuth * authorityWeight(c.d.Scope, cfg, chain...)
-		// prior blend used ONLY within a band; cosine is intentionally excluded (the band already
-		// captured relevance) so seniority/recency decide near-ties, not a residual cosine sliver.
+
 		prior := wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
-		display := wRel*c.sim + prior
+		if prior > priorCap { // bound only the POSITIVE nudge; negative feedback may still demote freely
+			prior = priorCap
+		}
+
+		score := wRel*c.sim + prior
 
 		rows = append(rows, row{
-			item:  RecalledItem{Decision: c.d, Score: round(display), Similarity: round(c.sim), Guidance: render(c.d)},
-			band:  bandOf(c.sim, bandWidth),
-			score: prior,
+			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
+			score: score,
 		})
 	}
 
-	// Higher cosine BAND always wins (relevance gate); ties within a band go to the prior blend.
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].band != rows[j].band {
-			return rows[i].band > rows[j].band
-		}
-
-		return rows[i].score > rows[j].score
-	})
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
 
 	out := make([]RecalledItem, 0, topK)
 	for i := 0; i < len(rows) && i < topK; i++ {
@@ -198,17 +195,6 @@ func authorityWeight(scope []string, cfg *Config, chain ...string) float64 {
 	}
 
 	return 0
-}
-
-// bandOf quantises a cosine similarity into a relevance band (Wang/Lin/Metzler cascade + standard
-// bucketed tie-breaking). Items in the same band are treated as relevance-equivalent, so weaker
-// priors decide only among them — never across bands. A non-positive width disables banding.
-func bandOf(sim, width float64) int {
-	if width <= 0 {
-		return 0
-	}
-
-	return int(math.Floor(sim / width))
 }
 
 // recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.

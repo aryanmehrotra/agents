@@ -247,9 +247,14 @@ fixed against verified IR/ML literature, not by ad-hoc tuning. Status: ✅ fixed
 **Defect:** a linear additive score (`cosine + 0.15·authority + …`) let a bounded static prior (+0.10)
 override cosine gaps up to ~0.15 — a CTO's tangential note buried the exact answer, evicting it from
 the top-3 entirely (reproduced across ~12 queries).
-**Fix — cascade ranking + relevance bands.** Cosine now GATES recall; priors only reorder *within* a
-cosine band (`band = ⌊cos/0.05⌋`), never across one. A higher-band item always outranks a lower-band
-one regardless of authorship. *Wang, Lin & Metzler, "A Cascade Ranking Model," SIGIR 2011.* The
+**Fix — cascade ranking + a BOUNDED prior tie-breaker.** Cosine gates recall and orders results; the
+priors can nudge the order by at most `prior_cap` (≈0.01), so they break genuine near-ties without ever
+burying a materially-more-relevant answer. (A first attempt used a fixed cosine *band* and sorted
+within it by priors alone — a re-run red-team showed that still discarded cosine *inside* a band,
+recreating the burial and adding recency inversions; the robust form keeps cosine primary everywhere
+and caps the total positive prior below the smallest cosine gap worth respecting. Negative feedback is
+uncapped, so a "not relevant" mark still demotes.) *Wang, Lin & Metzler, "A Cascade Ranking Model,"
+SIGIR 2011* (relevance gates); *Kraaij et al., SIGIR 2002* (priors as small terms, not large offsets). The
 literature's alternatives (all verified) also apply: **RRF** — Cormack, Clarke & Buettcher, SIGIR 2009
 (rank fusion, scale-immune); score normalization — Fox & Shaw 1994 / Montague & Aslam 2001; priors as
 small *log-priors* not additive constants — Kraaij, Westerveld & Hiemstra, SIGIR 2002; quality-biased
