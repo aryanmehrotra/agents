@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,17 +157,28 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 
 	publishMetrics(ctx)
 
-	// Weak-match signal: if the best cosine only just clears the floor, the whole set is "reaching" —
-	// loosely related, not a confident answer. Surface it so the caller can read the hedge.
-	var topSim float64
+	// Weak-match signal (Manmatha, Rath & Feng, SIGIR 2001 — score distributions): confidence is not an
+	// absolute cosine but how much the top result STANDS OUT. Weak if the best barely clears the floor
+	// (absolute) OR it doesn't separate from the runner-up (small top1−top2 margin — a flat distribution
+	// means "topically near but nothing decisive"). This stops confident-but-wrong answers (high cosine,
+	// tiny margin) from reading as strong, and stops good-but-modest results from being flagged weak.
+	var top1, top2 float64
+
 	for _, it := range items {
-		if it.Similarity > topSim {
-			topSim = it.Similarity
+		switch {
+		case it.Similarity > top1:
+			top2 = top1
+			top1 = it.Similarity
+		case it.Similarity > top2:
+			top2 = it.Similarity
 		}
 	}
 
 	floor := cfg.F("retrieve.precision_floor", 0.30)
-	weak := len(items) > 0 && topSim < floor+cfg.F("retrieve.weak_margin", 0.10)
+	absWeak := top1 < floor+cfg.F("retrieve.weak_margin", 0.10)
+	marginWeak := len(items) >= 2 && (top1-top2) < cfg.F("retrieve.weak_min_margin", 0.03)
+	weak := len(items) > 0 && (absWeak || marginWeak)
+	topSim := top1
 
 	return map[string]any{
 		"items":          items,
@@ -252,6 +265,10 @@ func setConfigHandler(ctx *gofr.Context) (any, error) {
 		return map[string]any{"error": "`key` is required"}, nil
 	}
 
+	if msg, ok := validateConfig(in.Key, in.Value); !ok {
+		return map[string]any{"error": msg}, nil
+	}
+
 	cfg.Set(in.Key, in.Value, in.Scope)
 
 	scope := in.Scope
@@ -330,6 +347,10 @@ func consolidateHandler(ctx *gofr.Context) (any, error) {
 		in.Limit = 20
 	}
 
+	if in.Limit > 200 { // bound attacker/fat-finger input
+		in.Limit = 200
+	}
+
 	return engine.Consolidate(time.Now(), in.Limit), nil
 }
 
@@ -401,6 +422,41 @@ func confirmRelationHandler(ctx *gofr.Context) (any, error) {
 	engine.ConfirmRelation(in.Child, in.Parent, in.Accept)
 
 	return map[string]any{"ok": true}, nil
+}
+
+// validateConfig range-checks known numeric knobs so a hostile or fat-fingered write can't put the
+// engine in a dangerous state (a negative precision_floor passes everything; a giant top_k was a
+// crash/DoS and a store-dump vector). Defense at the write site complements the clamps at the read
+// site in rank.go. Unknown keys are allowed (the config store is intentionally open-ended).
+func validateConfig(key, value string) (string, bool) {
+	bounds := map[string][2]float64{
+		"retrieve.precision_floor":  {0, 1},
+		"retrieve.weak_margin":      {0, 1},
+		"retrieve.weak_min_margin":  {0, 1},
+		"retrieve.top_k":            {1, 50},
+		"retrieve.max_top_k":        {1, 200},
+		"rank.band_width":           {0, 1},
+		"rank.w_authority":          {0, 5},
+		"forget.floor":              {0, 1},
+		"forget.halflife_days":      {0, 100000},
+		"retrieve.adaptive_z":       {0, 10},
+	}
+
+	b, known := bounds[strings.TrimSpace(key)]
+	if !known {
+		return "", true
+	}
+
+	f, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return "`" + key + "` must be a number", false
+	}
+
+	if f < b[0] || f > b[1] {
+		return fmt.Sprintf("`%s` must be in [%g, %g]", key, b[0], b[1]), false
+	}
+
+	return "", true
 }
 
 // seedConfig loads any ORGMEM_<KEY>=value env vars as knobs (KEY with __ → .), so a deployment can set

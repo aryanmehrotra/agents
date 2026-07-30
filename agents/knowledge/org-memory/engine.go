@@ -150,7 +150,18 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 		}
 	}
 
-	qvec, err := en.embed.Embed(ctx, strings.Join(textParts, " "), RoleQuery)
+	// No free text → nothing to match on semantically. Embedding an empty string yields a constant
+	// vector that spuriously "matches" a fixed few decisions, so a blank/whitespace/scope-only query
+	// must return NOTHING rather than canned advice.
+	queryText := strings.TrimSpace(strings.Join(textParts, " "))
+	if queryText == "" {
+		atomic.AddInt64(&en.recalls, 1)
+		atomic.AddInt64(&en.recallsEmpty, 1)
+
+		return nil, nil
+	}
+
+	qvec, err := en.embed.Embed(ctx, queryText, RoleQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +178,21 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 	// inside the repo it happened to be recorded in. Set retrieve.hard_scope=1 to restore filtering.
 	hardScope := en.cfg.F("retrieve.hard_scope", 0) > 0
 
+	// HARD facets vs SOFT priors (Filtered-DiskANN, Gollapudi et al. 2023; Hearst 2006): an explicitly
+	// asserted identity/provenance facet — author:… (WHO) or kind:… (what TYPE, e.g. kind:book) — is a
+	// correctness PREDICATE: a wrong-author or wrong-kind result is simply incorrect, so it is excluded
+	// from the candidate set, not merely down-weighted. Topical scope (repo:/service:/topic:) stays a
+	// SOFT prior above. This is why "author=vikash" no longer leaks other authors and "scope=kind:book"
+	// no longer returns non-book items.
+	hardFacets := hardFilterTags(tagParts)
+
 	var cands []scored
 
 	for _, d := range en.store.Active() {
+		if !hasAllTags(d.Scope, hardFacets) {
+			continue // failed a hard facet predicate — cannot be correct for this request
+		}
+
 		ok, spec := scopeMatch(d.Scope, cset)
 		if hardScope && !ok {
 			continue

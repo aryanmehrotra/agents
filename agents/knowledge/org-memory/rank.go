@@ -26,7 +26,18 @@ type scored struct {
 //
 // Feedback is a relevance nudge only (helpful/used boost, not_relevant demotes) — never correctness.
 func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem {
+	// Clamp topK at the USE site (defense-in-depth): an unbounded/negative top_k (e.g. a hostile or
+	// fat-fingered config write) previously flowed into make([]RecalledItem, 0, topK) and OOM-crashed
+	// the process, and a huge value turned recall into a whole-store dump. Bound it regardless of config.
 	topK := cfg.I("retrieve.top_k", 3, chain...)
+	if topK < 1 {
+		topK = 1
+	}
+
+	if maxK := cfg.I("retrieve.max_top_k", 50, chain...); topK > maxK {
+		topK = maxK
+	}
+
 	wRel := cfg.F("rank.w_relevance", 1.0, chain...)
 	wRec := cfg.F("rank.w_recency", 0.3, chain...)
 	wImp := cfg.F("rank.w_importance", 0.3, chain...)
@@ -36,13 +47,26 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 	demote := cfg.F("feedback.demote_per_notrel", 0.1, chain...)
 
 	floor := gateFloor(cands, cfg, chain...)
+	if floor < 0 { // a negative precision_floor would pass everything (a store-dump vector) — never allow it
+		floor = 0
+	}
+
 	forgetFloor := cfg.F("forget.floor", 0.03, chain...)
+
+	// Cascade ranking (Wang, Lin & Metzler, SIGIR 2011): relevance GATES recall; the weaker priors
+	// (authority, recency, importance, retention, feedback) only re-rank WITHIN a relevance band, never
+	// across one. band = ⌊cosine / bandWidth⌋; a decision in a higher cosine band always outranks a
+	// lower-band one regardless of its author's seniority, so a bounded static prior can no longer evict
+	// a materially-more-relevant answer (the additive-domination bug). Within a band, prior signals
+	// break the near-tie. bandWidth (≈0.05) is a live knob.
+	bandWidth := cfg.F("rank.band_width", 0.05, chain...)
 
 	now := time.Now()
 
 	type row struct {
 		item  RecalledItem
-		score float64
+		band  int
+		score float64 // secondary (within-band) key: the prior blend
 	}
 
 	var rows []row
@@ -65,15 +89,26 @@ func rankAndFilter(cands []scored, cfg *Config, chain ...string) []RecalledItem 
 
 		fb := boost*float64(c.st.Helpful+c.st.Used) - demote*float64(c.st.NotRelevant)
 		auth := wAuth * authorityWeight(c.d.Scope, cfg, chain...)
-		score := wRel*c.sim + wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
+		// prior blend used ONLY within a band; cosine is intentionally excluded (the band already
+		// captured relevance) so seniority/recency decide near-ties, not a residual cosine sliver.
+		prior := wRec*recencyScore(c.d.Updated, now) + wImp*importance(c.spec) + wRet*ret + auth + fb
+		display := wRel*c.sim + prior
 
 		rows = append(rows, row{
-			item:  RecalledItem{Decision: c.d, Score: round(score), Similarity: round(c.sim), Guidance: render(c.d)},
-			score: score,
+			item:  RecalledItem{Decision: c.d, Score: round(display), Similarity: round(c.sim), Guidance: render(c.d)},
+			band:  bandOf(c.sim, bandWidth),
+			score: prior,
 		})
 	}
 
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].score > rows[j].score })
+	// Higher cosine BAND always wins (relevance gate); ties within a band go to the prior blend.
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].band != rows[j].band {
+			return rows[i].band > rows[j].band
+		}
+
+		return rows[i].score > rows[j].score
+	})
 
 	out := make([]RecalledItem, 0, topK)
 	for i := 0; i < len(rows) && i < topK; i++ {
@@ -163,6 +198,17 @@ func authorityWeight(scope []string, cfg *Config, chain ...string) float64 {
 	}
 
 	return 0
+}
+
+// bandOf quantises a cosine similarity into a relevance band (Wang/Lin/Metzler cascade + standard
+// bucketed tie-breaking). Items in the same band are treated as relevance-equivalent, so weaker
+// priors decide only among them — never across bands. A non-positive width disables banding.
+func bandOf(sim, width float64) int {
+	if width <= 0 {
+		return 0
+	}
+
+	return int(math.Floor(sim / width))
 }
 
 // recencyScore decays exponentially with age (~30-day half-life-ish), in (0,1]. Zero time → 0.
