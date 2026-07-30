@@ -261,6 +261,34 @@ small *log-priors* not additive constants — Kraaij, Westerveld & Hiemstra, SIG
 ranking — Bendersky, Croft & Diao, WSDM 2011. Root cause is categorical: a static additive prior on an
 un-normalized relevance score can always dominate — so relevance must gate, priors must be tie-breakers.
 
+> **⚠️ The fix above was documented here but NOT implemented (found 2026-07-30, now corrected).**
+> This section already named score normalization — *Fox & Shaw 1994 / Montague & Aslam 2001* — as a
+> verified applicable alternative, and stated the root cause as "a static additive prior on an
+> **un-normalized** relevance score." The code did not normalize. It computed `prior = Σ wᵢxᵢ` and
+> clamped the **sum** at `prior_cap`. Since recency + importance + retrievability alone always exceed
+> a 0.01 cap, the sum saturated and **every** candidate received exactly `+prior_cap` — a constant
+> offset, which carries no ordering information. Measured pre-fix: `score − similarity = +0.010` for
+> every item in every provenance, a CTO-authored review and an unattributed book alike.
+>
+> The damage went past a dead feature: it made the validation **unfalsifiable**. "Does a
+> high-authority item evict a more-relevant one?" and "does toggling `w_authority` change the order?"
+> both passed, and neither *could* have failed — a uniform offset cannot reorder anything. Both were
+> reported as evidence that a bounded authority prior behaves safely.
+>
+> **Now implemented as documented:** the prior is a weighted **mean** of `[0,1]`-scaled signals scaled
+> by `prior_cap` — bounded by construction rather than by clipping a runaway sum. *Lee, "Analyses of
+> Multiple Evidence Combination," SIGIR 1997*; *Montague & Aslam, CIKM 2001*. Regression tests
+> (`TestRankPriorIsNotConstant`, `TestRankAuthorityToggleChangesOrdering`) fail against the old code.
+>
+> **Measured limitation, stated rather than claimed away:** at deployed weights authority's maximum
+> contribution is `prior_cap × w_auth/Σw = 0.01 × 0.15/1.35 ≈ 0.0011`, against a **median adjacent
+> cosine gap of 0.011** in top-5. Toggling `w_authority` 0 ↔ 0.15 across 20 queries changes **zero**
+> orderings. The prior is no longer degenerate; it remains *practically inert*. `prior_cap` stays at
+> 0.01 and authority is **not** claimed as an operative ranking signal.
+>
+> **Lesson for this document:** a citation here is a claim about the code, and nothing was checking
+> it. This section read correctly and was wrong in production the entire time.
+
 ### 10b. Facets treated as soft hints, not filters ✅
 **Defect:** `author=vikash` leaked other authors; `scope=kind:book` returned non-book items — facets
 were concatenated into the query as ranking hints.
@@ -275,12 +303,61 @@ crossed the floor; a confident-but-wrong result ("cache") read as strong.
 **Fix (shipped):** the weak flag is now **margin-based** — weak unless the top result *stands out* from
 the runner-up (`top1−top2`), not just clears an absolute bar. *Manmatha, Rath & Feng, "Modeling Score
 Distributions," SIGIR 2001.* ("cache" now correctly flags weak.)
+
+> **⚠️ That margin rule was itself the next defect (found 2026-07-30, now corrected).** Shipping it as
+> an `OR` against the absolute bar — `weak = absWeak || marginWeak` — fused two unrelated questions
+> into one boolean, and the margin half dominated. Measured: `weak=true` on **16/32** genuine hits,
+> including correct matches at similarity 0.83–0.85; an independent cross-family audit reproduced it
+> at 5/5. Meanwhile it stayed **false** on the confidently-wrong negation failures it most needed to
+> catch (§10d: *"should we fail closed"* → *"Fail **open**"* at 0.778, `weak=false`). A flag that
+> fires on half of all correct answers and stays silent on the dangerous wrong ones is not a
+> confidence signal.
+>
+> The conflation is the bug. A tight cluster of near-equally-relevant results means **the corpus is
+> redundant on this topic**, not that the answer is doubtful — a distinct question from "is the top
+> match strong at all." They are now reported separately as `weak` (absolute confidence) and
+> `ambiguous` (flat top-2 distribution), both measured against the **effective** floor rather than
+> the absolute `precision_floor` — a second latent bug, since with adaptive gating on, those differ
+> and the comparison silently mis-labels confidence exactly when adaptation is doing the work.
+>
+> Post-fix, every previously-"weak" genuine hit (circuit breaker, rate limiting, error handling) is
+> correctly `weak=false, ambiguous=true`. **This makes the signal measurable, not validated** — a real
+> verdict needs a labeled set of correct vs incorrect recalls, and the deferred QPP path below is
+> still the rigorous answer. Note *Cronen-Townsend et al., SIGIR 2002* and *Zhou & Croft, SIGIR 2007*
+> were already cited here as that path; the margin heuristic was shipped as an interim stand-in and
+> then treated as the fix.
+>
+> **Related (§10c ⇄ honesty):** `top_similarity` was computed as the max over the *surfaced* list, so
+> every abstention reported `0.000` — an absence, not a measured cosine — and a validation report
+> read that as "the strongest off-topic scored 0.0" and concluded the abstention margin was
+> "enormous." `recall` now returns `top_candidate_similarity` (best pre-gate cosine) and the `floor`.
+> Re-measured, the real margin is **0.073**, and gibberish scores **0.612** against a 0.653 floor. An
+> abstention must be *measurable* to be calibrated at all — *El-Yaniv & Wiener 2010* (risk–coverage,
+> reference index) is meaningless against a masked score.
 **Deferred (⏭), with the grounded path:** the rigorous version is a post-retrieval **QPP** gate (WIG:
 mean-top-k minus corpus-mean cosine — *Zhou & Croft, SIGIR 2007*; Clarity — *Cronen-Townsend et al.,
 SIGIR 2002*), a **lexical/BM25 hybrid gate** to kill topically-near-but-off-intent hits (*Thakur et al.,
 BEIR, NeurIPS 2021*), cosine→probability calibration (*Platt 1999; Lin et al. 2007*), and **conformal**
 thresholds for a distribution-free abstention guarantee (*Angelopoulos & Bates 2021*) replacing the
 noise-ceiling heuristic.
+
+> **❌ The BM25 hybrid was built, measured, and REJECTED (2026-07-30).** Implemented in `lexical.go`
+> (identifiers preserved as whole tokens, RRF fusion) and swept over `rank.w_lexical ∈ {0…2.0}`
+> against a 15-query set and 3 polarity pairs. Full report: `eval/validation/hybrid_lexical.md`.
+>
+> - **precision@3: dense-only 15/15, every hybrid weight 14/15.** It loses `which database is the
+>   source of truth for order data` — a query that does not contain the token `orders`, so BM25
+>   matches "source"/"truth" instead and promotes a decision about READMEs. The hybrid helps only when
+>   the query already names the exact identifier, and dense retrieval was handling those anyway.
+> - **negation got WORSE, not better: identical-top on 1/3 pairs → 2/3.** "add retries" and "do not
+>   retry" share three high-idf content terms and differ by low-idf stopword-adjacent negations, so
+>   BM25 pulls the polarities *together* harder than the embedding does. The hypothesis was backwards.
+>
+> Shipped disabled by default (zero cost — the index is never built while the weight is 0). The
+> deferred-path list above is amended: the lexical gate is closed, not pending. This also **narrows**
+> the cross-encoder case in §10d — NevIR's result is about a joint query+document read, and BM25 was
+> the cheap approximation of "look at the actual tokens"; the measurement says the cheap approximation
+> does not capture what makes the cross-encoder work.
 
 ### 10d. Negation / opposite-intent blindness ⏭ (documented, not faked)
 **Defect:** *"disconnect Redis"* returns the *connect* doc, confidently — dense bi-encoders match topic,
@@ -290,6 +367,24 @@ on negation; **cross-encoders best, bi-encoders worst**) and *García-Ferrero et
 "Passage Re-ranking with BERT," 2019*) — jointly reads query+doc and demotes opposite-intent matches a
 bi-encoder can't tell apart; or an instruction field (*Weller et al., "FollowIR," 2024*). Requires a
 cross-encoder model, so it's the next build; until then this failure mode is a known, documented limit.
+
+> **Scope is wider than negation — this also causes false contradictions (found 2026-07-30).** The
+> order-storage cluster that drove the 9.4% contradiction rate is the *same* defect wearing different
+> clothes. Two decisions, both verbatim-correct against their source docs, about **different tables**
+> — `orders` (ClickHouse sole store) and `order_events` (MySQL source of truth) —
+> surface together as if they conflicted, because a bi-encoder ranks the shared phrasing "source of
+> truth" above the entity token that distinguishes them. Not polarity this time, but **entity**; same
+> root cause, same fix.
+>
+> Adding `table:` subject facets was tried and **did not fix it**: `hardFilterPrefixes` is
+> `["author:", "kind:"]`, so `table:` is an inert soft prior (verified — `scope=table:orders`
+> and `scope=table:order_events` return identical sets), and even as a hard predicate it
+> cannot help a free-text query that carries no facet. Metadata was a necessary condition, not a
+> remedy.
+>
+> This raises the priority of the cross-encoder re-ranker: it is not a single-failure-mode fix. One
+> build closes **negation blindness and entity conflation together**, which is the highest-value open
+> item in the system.
 
 ### 10e. Robustness / safety bugs ✅ (eng fixes) / ⏭ (auth)
 Plain bugs, fixed directly: **top_k=MaxInt OOM-crashed the process** → clamped at read + rejected at the
@@ -359,3 +454,164 @@ is ours; the pieces are real.
 | Richards & Frankland 2017 | Persistence & Transience (*Neuron*) | §9c adaptive forgetting |
 | Anderson, Bjork & Bjork 1994 | Remembering Can Cause Forgetting (*JEP:LMC*) | §9c keeping-all hurts |
 | McCloskey & Cohen 1989 | Catastrophic interference | §9c unmanaged forgetting |
+
+---
+
+## 11. Parameter grounding — which numbers are *fitted* and which are merely *chosen*
+
+This document opens by claiming every non-obvious design decision traces to an established result.
+Audited against the code on 2026-07-30 (`PHASE0-AUDIT.md`), that holds for the **architecture** and
+fails for the **parameters**: of 28 live knobs, 9 are backed, 5 partially, and **14 are asserted with
+no basis** — including every confidence threshold (`weak_margin`, `weak_min_margin`, `adaptive_z`)
+and every decay and feedback constant. For a system whose moat is calibrated honesty, an
+unjustifiable threshold is the same defect class as a masked similarity score: a number that reads
+as a measurement and is not.
+
+Two decisions turned out to be **published methods the repo never cited**:
+
+- **The auto-calibrated floor is signal-to-noise normalization.** Booting, probing with generic
+  off-topic queries, measuring the similarity ceiling that noise reaches, and setting the floor just
+  above it is exactly *Arampatzis & Kamps, "A signal-to-noise approach to score normalization," CIKM
+  2009*. `retrieve.calibration_margin` is the SNR offset. Best idea in Phase 0, documented as a local
+  trick.
+- **`rrf_k = 60` is Cormack et al.'s measured TREC optimum**, not a guess; k ∈ [40,80] is comparable.
+
+The principled replacements for the asserted numbers:
+
+- **Cutoff / `precision_floor` / `top_k`** — *Arampatzis, Kamps & Robertson, "Where to stop reading a
+  ranked list? Threshold optimization using truncated score distributions," SIGIR 2009*; learned
+  variant *Bahri et al., arXiv:2102.12793*. Fit the score distribution and optimize the target
+  measure instead of fixing a cosine number.
+- **`weak` / `ambiguous` thresholds** — fit the standard **normal–exponential mixture** (relevant ≈
+  normal, non-relevant ≈ exponential): *Manmatha, Rath & Feng, SIGIR 2001*; *Arampatzis & Robertson,
+  "Modeling score distributions in information retrieval," Information Retrieval 2011*. This yields
+  `P(relevant | score)` — a calibrated probability replacing `weak_margin = 0.10`, and a fitted
+  quantile replacing `adaptive_z`.
+- **`forget.halflife_days`** — a single global half-life is the naive form. *Settles & Meeder, "A
+  Trainable Spaced Repetition Model for Language Learning," ACL 2016* regresses half-life **per item**
+  from observed recall. The `R = e^(−t/S)` form is right; one constant `S` for every decision is not.
+- **`adaptive_min_n = 8`** — needs no citation to be wrong: σ from n=8 carries ~27% relative standard
+  error (~13% at n=30), and the adaptive floor is `mean + z·σ`, so it inherits that noise. The knob
+  is a trap for small deployments — precisely where auto-calibration matters most.
+
+### 11a. Implemented — thresholds fitted from the score distribution (`scoredist.go`, 2026-07-30) ✅
+
+The confidence thresholds are no longer chosen. For each query the NON-RELEVANT score distribution is
+fitted, and every threshold is expressed against it, so the knobs carry units and transfer across
+corpora and embedding models:
+
+| was | is |
+|---|---|
+| `adaptive_z = 2.0` (a conventional sigma count) | `retrieve.max_false_inject_rate` — the fraction of irrelevant decisions allowed to clear the gate |
+| `weak_margin = 0.10` (a bare cosine) | `retrieve.weak_noise_p` — the chance the top match is noise |
+| `adaptive_min_n = 8` | `= 30` (σ̂'s relative standard error: 27% → 13%) |
+
+**A latent statistical defect surfaced while doing this.** The old adaptive floor estimated `mean` and
+`σ` over *all* candidate similarities — including the relevant ones it existed to admit. Relevant
+documents occupy the right tail, so they inflate both moments and raise the floor: **the gate grew
+stricter precisely because the query had good answers.** Measured (1600 noise + k relevant, α=0.01),
+the classical estimator drifted **+0.136** across k = 0→150; the replacement drifts **+0.018**.
+
+The scale estimator is deliberately **one-sided** — `σ̂ = (Q2 − Q1)/Φ⁻¹(0.75)`, which never reads a
+score above the median. Plain MAD was tried first and still drifted 11.6%, because it averages
+absolute deviations on *both* sides while the contamination here is entirely right-tailed. Fitting the
+non-relevant component only on the range where it is the sole component is exactly the truncated-
+distribution construction of *Arampatzis, Kamps & Robertson (SIGIR 2009)*; robust-scale foundations
+*Rousseeuw & Croux (JASA 1993)* and *Huber, Robust Statistics*.
+
+Effect on the known failure: the near-domain false-inject (`react useEffect cleanup`, 2 results at
+cosine 0.658) that the original abstention validation reported as a clean 0/32 is now **flagged**, at
+`noise_p = 1.1e-3`. Gibberish lands at 1.3e-3 — indistinguishable, correctly, where raw cosine made
+0.612 and 0.658 look different.
+
+> **Limitation, stated rather than buried.** `noise_p` is *relative* to each query's own distribution.
+> A far-off-topic query has a tight low distribution, so a modest top score can look extreme against
+> it — `what is the capital of France` reports a more confident-looking `noise_p` than the near-domain
+> react query. The gate therefore takes `max(absolute floor, fitted floor)`, and the absolute floor
+> remains a required backstop. Fitting removes the *arbitrary* part of the decision, not the decision.
+> The full normal–exponential mixture (below) models both components and would address this directly.
+
+> **⚠️ Two decay curves over the same quantity (found 2026-07-30).** `recencyScore` (`rank.go`) decays
+> `exp(−days/30)` and `retention` (`forget.go`) decays `exp(−days/halflife_days=90)` — both over
+> `now − Updated`, both applied to the same decision in the same scoring pass, disagreeing by 3×, with
+> nothing reconciling them. Worse, **both mislabel their constant**: `exp(−t/τ)` has half-life `τ·ln2`,
+> so τ=90 gives a **62.4-day** half-life (not 90) and τ=30 gives **20.8 days** (not the "~30-day
+> half-life-ish" the comment claims). Both knobs are off from their stated meaning by `ln2 ≈ 0.693`.
+> Fix: one decay function, one correctly-named constant, fit per the reference above.
+
+**Gate #0 is also not enforced.** §1.7 requires a build-time scanner that fails on literal constants;
+none exists, and two literals survive in `rank.go` — the 30-day recency constant and the `spec/3.0`
+importance divisor. The gate was declared non-negotiable and then enforced by intention.
+
+## 12. Asking for feedback — active learning, run as a closed loop (`ask.go`) ✅
+
+The feedback loop existed from Phase 0 and was almost entirely unused: **151 recalls produced 1
+label.** That is not apathy, it is design — nothing ever prompted anyone, so labelling required
+remembering the endpoint existed and choosing, unprompted, to use it. The cost is concrete and
+blocking: the ~13 ranking constants that are still *chosen* rather than *fitted* (§11) can only be
+fitted from interaction data — counterfactual / unbiased learning-to-rank (*Joachims, Swaminathan &
+Schnabel, "Unbiased Learning-to-Rank with Biased Feedback", WSDM 2017*), which corrects for position
+bias via propensity weighting — and there is nowhere near enough of it. **The blocker on those knobs
+was never research. It was that the system never asked.**
+
+**Which recalls to ask about — uncertainty sampling.** Not all of them: that is what makes feedback
+prompts annoying enough to be switched off, and most labels would be worthless anyway (a recall at
+`noise_p = 2e-15` is one the system is already certain about; confirming it teaches nothing). Query
+the instances the model is *least certain* about, because those carry the most information per unit
+of human patience — *Lewis & Gale (SIGIR 1994)*; *Settles, "Active Learning Literature Survey"
+(2009)*. This system is unusually well set up for it: §11a made `noise_p` a calibrated probability,
+so "least certain" is a **measured quantity** here, not a heuristic.
+
+**How many to ask — a controller, not a schedule.** The ask rate is not a fixed cadence someone
+guessed. The engine tracks, over a rolling window, what fraction of recalls came back **confident**,
+and compares it to `feedback.target_confidence_ratio`. Above target, questions taper to a background
+trickle; below it, they tighten in proportion to the shortfall, concentrating labelling effort
+exactly when and where quality is slipping — and quieting down on their own once the ratio recovers.
+A rolling window rather than a lifetime average, because the question is "how are we doing *now*": a
+cumulative mean would let a long healthy history mask a recent regression for thousands of recalls.
+
+**The blind spot, and why sampling is mixed in.** Uncertainty sampling never asks about cases the
+model is confident on, so *on its own it can never discover CONFIDENT-AND-WRONG* — which is this
+system's most dangerous failure mode, and a demonstrated one: the negation results come back
+`weak:false`. A slice of confident recalls is therefore sampled too, deterministically (every Nth
+recall, not an RNG, so the policy is reproducible in a test). Related: *Settles & Craven (EMNLP
+2008)* weight uncertainty by density to avoid spending queries on outliers — the same instinct.
+
+**Gaps in the corpus.** A near-miss abstention gets its own question — *"I found nothing, but
+something came close. Should I have known it?"* Ranking feedback can only ever talk about decisions
+that were surfaced, so a missing rule is invisible to it. This is the only channel through which the
+corpus can learn what it does not contain.
+
+Delivered through the recall hook that already injects context into Claude Code, so there is no new
+surface to visit and no queue to remember. `feedback.ask_mode=off` silences it entirely — an
+assistant that cannot be told to stop asking gets turned off completely instead.
+
+**§10 — IR references.** These were cited inline in §10 but never listed here, which is part of why
+§10a's normalization citation could sit next to code that ignored it without anyone noticing. Listed
+now so every claim §10 makes has a row that can be checked against the implementation.
+
+| # | Reference | Backs |
+|---|---|---|
+| Lee 1997 | Analyses of Multiple Evidence Combination (*SIGIR*) | §10a normalize **before** combining |
+| Fox & Shaw 1994 | Combination of Multiple Searches (*TREC-2*) | §10a CombSUM / score normalization |
+| Montague & Aslam 2001 | Relevance Score Normalization for Metasearch (*CIKM*) | §10a normalization |
+| Wang, Lin & Metzler 2011 | A Cascade Ranking Model (*SIGIR*) | §10a relevance gates first |
+| Kraaij, Westerveld & Hiemstra 2002 | Priors for entry page search (*SIGIR*) | §10a priors stay small |
+| Cormack, Clarke & Buettcher 2009 | Reciprocal Rank Fusion (*SIGIR*) | §10a RRF mode (scale-immune) |
+| Bendersky, Croft & Diao 2011 | Quality-biased ranking (*WSDM*) | §10a quality priors |
+| Manmatha, Rath & Feng 2001 | Modeling Score Distributions (*SIGIR*) | §10c weak = standing out |
+| Cronen-Townsend, Zhou & Croft 2002 | Predicting Query Performance / Clarity (*SIGIR*) | §10c QPP gate (deferred) |
+| Zhou & Croft 2007 | Query performance prediction / WIG (*SIGIR*) | §10c QPP gate (deferred) |
+| Platt 1999 / Lin et al. 2007 | Probabilistic outputs / calibration | §10c cosine → probability |
+| Thakur et al. 2021 | BEIR (*NeurIPS D&B*) | §10c lexical hybrid gate |
+| Gollapudi et al. 2023 | Filtered-DiskANN (*WWW*) | §10b hard facets as predicates |
+| Hearst 2006 | Design recommendations for faceted search (*CACM*) | §10b facets |
+| Weller et al. 2024 | NevIR (*EACL*) / FollowIR | §10d negation blindness |
+| García-Ferrero et al. 2023 | Negation in LMs (*EMNLP*) | §10d negation |
+| Nogueira & Cho 2019 | Passage Re-ranking with BERT (arXiv:1901.04085) | §10d cross-encoder re-rank |
+| Kamvar, Schlosser & Garcia-Molina 2003 | EigenTrust (*WWW*) | §10a seeded authority |
+| Arampatzis & Kamps 2009 | A signal-to-noise approach to score normalization (*CIKM*) | §11 auto-calibrated floor |
+| Arampatzis, Kamps & Robertson 2009 | Where to stop reading a ranked list (*SIGIR*) | §11 cutoff / `precision_floor` |
+| Arampatzis & Robertson 2011 | Modeling score distributions in IR (*Information Retrieval*) | §11 normal–exponential mixture |
+| Bahri et al. 2021 | Learning to Truncate Ranked Lists (arXiv:2102.12793) | §11 learned cutoff |
+| Settles & Meeder 2016 | A Trainable Spaced Repetition Model / HLR (*ACL*) | §11 per-item half-life |
