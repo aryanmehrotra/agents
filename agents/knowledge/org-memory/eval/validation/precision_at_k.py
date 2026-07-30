@@ -17,8 +17,17 @@ Relevance criteria are coarse substring checks: objective and reproducible, whic
 regression gate needs. Graded judgements (and therefore nDCG) need human labelling this corpus does
 not have. See evaluate() for why there are TWO criteria rather than one.
 
+Defaults to the committed FIXTURE query set, which pairs with fixture_corpus.jsonl and is the same
+set the portable Go gate (golden_test.go) runs. Point --queries at your own file to evaluate a
+private corpus; keep that file out of git, because a query set is a description of your corpus.
+
+An earlier version shipped queries written against a private corpus. Sanitising them for publication
+silently decoupled them from the data they described, and five of eighteen "failures" turned out to
+be that drift rather than a regression — a quality gate that can rot without anyone noticing is
+worse than none. Fixture and queries now live together and move together.
+
 Usage:
-    python3 precision_at_k.py [--url http://localhost:8000] [--k 3] [--sweep rank.w_lexical=0,0.5,1.0]
+    python3 precision_at_k.py [--url http://localhost:8000] [--k 3] [--queries FILE]
 """
 
 import argparse
@@ -107,7 +116,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:8000")
     ap.add_argument("--k", type=int, default=3)
-    ap.add_argument("--queries", default=os.path.join(HERE, "golden_queries.jsonl"))
+    ap.add_argument("--queries", default=os.path.join(HERE, "golden_fixture_queries.jsonl"))
     ap.add_argument("--sweep", default=None, help="key=v1,v2,v3 — measure P@k at each value")
     args = ap.parse_args()
 
