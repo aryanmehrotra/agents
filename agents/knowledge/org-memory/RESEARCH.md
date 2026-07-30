@@ -238,6 +238,65 @@ memory. Three bodies of human-memory research shape the curation layer.
 
 ---
 
+## 10. Adversarial red-team → research-grounded fixes
+
+A fable-5 red-team (3 adversaries: false-injection, ranking, robustness) found real defects. Each was
+fixed against verified IR/ML literature, not by ad-hoc tuning. Status: ✅ fixed · ⏭ designed/deferred.
+
+### 10a. Ranking: static priors evicting the relevant answer ✅
+**Defect:** a linear additive score (`cosine + 0.15·authority + …`) let a bounded static prior (+0.10)
+override cosine gaps up to ~0.15 — a CTO's tangential note buried the exact answer, evicting it from
+the top-3 entirely (reproduced across ~12 queries).
+**Fix — cascade ranking + relevance bands.** Cosine now GATES recall; priors only reorder *within* a
+cosine band (`band = ⌊cos/0.05⌋`), never across one. A higher-band item always outranks a lower-band
+one regardless of authorship. *Wang, Lin & Metzler, "A Cascade Ranking Model," SIGIR 2011.* The
+literature's alternatives (all verified) also apply: **RRF** — Cormack, Clarke & Buettcher, SIGIR 2009
+(rank fusion, scale-immune); score normalization — Fox & Shaw 1994 / Montague & Aslam 2001; priors as
+small *log-priors* not additive constants — Kraaij, Westerveld & Hiemstra, SIGIR 2002; quality-biased
+ranking — Bendersky, Croft & Diao, WSDM 2011. Root cause is categorical: a static additive prior on an
+un-normalized relevance score can always dominate — so relevance must gate, priors must be tie-breakers.
+
+### 10b. Facets treated as soft hints, not filters ✅
+**Defect:** `author=vikash` leaked other authors; `scope=kind:book` returned non-book items — facets
+were concatenated into the query as ranking hints.
+**Fix — hard facet pre-filter.** Explicitly-asserted identity/provenance facets (`author:`, `kind:`)
+are correctness PREDICATES: non-matching decisions are excluded from the candidate set before ranking.
+Topical scope (`repo:`, `topic:`) stays a soft prior. *Gollapudi et al., "Filtered-DiskANN," WWW 2023;
+Hearst, "…Hierarchical Faceted Search Interfaces," 2006* (browse-constraint vs. free-text-relevance).
+
+### 10c. Abstention & confidence were absolute thresholds ✅ (partial) / ⏭
+**Defect:** a fixed floor + `weak = top<0.75` misjudged a heterogeneous corpus — off-topic queries
+crossed the floor; a confident-but-wrong result ("cache") read as strong.
+**Fix (shipped):** the weak flag is now **margin-based** — weak unless the top result *stands out* from
+the runner-up (`top1−top2`), not just clears an absolute bar. *Manmatha, Rath & Feng, "Modeling Score
+Distributions," SIGIR 2001.* ("cache" now correctly flags weak.)
+**Deferred (⏭), with the grounded path:** the rigorous version is a post-retrieval **QPP** gate (WIG:
+mean-top-k minus corpus-mean cosine — *Zhou & Croft, SIGIR 2007*; Clarity — *Cronen-Townsend et al.,
+SIGIR 2002*), a **lexical/BM25 hybrid gate** to kill topically-near-but-off-intent hits (*Thakur et al.,
+BEIR, NeurIPS 2021*), cosine→probability calibration (*Platt 1999; Lin et al. 2007*), and **conformal**
+thresholds for a distribution-free abstention guarantee (*Angelopoulos & Bates 2021*) replacing the
+noise-ceiling heuristic.
+
+### 10d. Negation / opposite-intent blindness ⏭ (documented, not faked)
+**Defect:** *"disconnect Redis"* returns the *connect* doc, confidently — dense bi-encoders match topic,
+not the direction of intent. Confirmed by *Weller et al., "NevIR," EACL 2024* (most IR models ≤ random
+on negation; **cross-encoders best, bi-encoders worst**) and *García-Ferrero et al., EMNLP 2023*.
+**Grounded fix (not yet built):** a **cross-encoder re-ranker** over the top-k (*Nogueira & Cho,
+"Passage Re-ranking with BERT," 2019*) — jointly reads query+doc and demotes opposite-intent matches a
+bi-encoder can't tell apart; or an instruction field (*Weller et al., "FollowIR," 2024*). Requires a
+cross-encoder model, so it's the next build; until then this failure mode is a known, documented limit.
+
+### 10e. Robustness / safety bugs ✅ (eng fixes) / ⏭ (auth)
+Plain bugs, fixed directly: **top_k=MaxInt OOM-crashed the process** → clamped at read + rejected at the
+config write site (`[1,50]`); a **negative `precision_floor` dumped the whole store** → clamped ≥0 and
+range-validated; **blank query returned canned results** (constant embedding) → now returns nothing;
+`/consolidate` limit bounded. ⏭ **No auth boundary** on `/config`, `/capture`, `/consolidate` — a real
+architectural limitation for anything beyond a local single-user instance; bind-to-loopback + a write
+token is the documented next step. `/capture` text is injected verbatim into agent context, so capture
+must stay trusted-source-only until an input-provenance gate exists.
+
+---
+
 ## Provenance & honesty
 
 All papers above were verified against primary or authoritative sources (arXiv, JMLR, DBLP,

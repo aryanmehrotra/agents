@@ -80,6 +80,49 @@ func isScopeTag(s string) bool {
 	return strings.Contains(s, ":") && !strings.ContainsAny(s, " \t")
 }
 
+// hardFilterPrefixes are the facet kinds that act as HARD predicates (a wrong value = a wrong result),
+// as opposed to soft topical priors. Identity/provenance facets the caller explicitly asserts.
+var hardFilterPrefixes = []string{"author:", "kind:"}
+
+// hardFilterTags picks the hard-predicate facets out of a query's tags (lowercased).
+func hardFilterTags(tags []string) []string {
+	var out []string
+
+	for _, s := range tags {
+		t := strings.ToLower(strings.TrimSpace(s))
+		for _, p := range hardFilterPrefixes {
+			if strings.HasPrefix(t, p) {
+				out = append(out, t)
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+// hasAllTags reports whether a decision's scope contains every required tag (case-insensitive). An
+// empty requirement set matches everything.
+func hasAllTags(scope, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+
+	have := map[string]bool{}
+	for _, s := range scope {
+		have[strings.ToLower(strings.TrimSpace(s))] = true
+	}
+
+	for _, r := range required {
+		if !have[r] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // contextSet builds the lowercased tag set a recall runs against.
 func contextSet(list []string) map[string]bool {
 	set := map[string]bool{}
