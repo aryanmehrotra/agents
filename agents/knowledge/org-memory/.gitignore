@@ -22,3 +22,11 @@ eval/judge_input.jsonl
 eval/judge_out.jsonl
 eval/judge_map.json
 eval/judgments.jsonl
+eval/v2_scenarios.jsonl
+eval/v2_tasks_blind.jsonl
+eval/v2_control.jsonl
+eval/v2_treatment.jsonl
+eval/v2_oracle.jsonl
+eval/v2_judge_input.jsonl
+eval/v2_judge_out.jsonl
+eval/v2_judge_map.json
