@@ -34,3 +34,7 @@ eval/v2_directive.jsonl
 eval/v2b_judge_input.jsonl
 eval/v2b_judge_out.jsonl
 eval/v2b_judge_map.json
+eval/v2_exec_r1.jsonl
+eval/v2_exec_r2.jsonl
+eval/*.check.jsonl
+eval/v2_exec_retry_input.jsonl
