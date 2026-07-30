@@ -1,0 +1,12 @@
+{"q": "retry failed calls with backoff", "must_contain": "exponential backoff", "note": "plain topical hit"}
+{"q": "circuit breaker for downstream calls", "must_contain": "circuit breaker", "note": "plain topical hit"}
+{"q": "graceful shutdown draining connections", "must_contain": "drain", "note": "plain topical hit"}
+{"q": "structured logs with correlation id", "must_contain": "structured json", "note": "phrasing differs from the decision"}
+{"q": "money handling as int64 cents", "must_contain": "int64 cents", "note": "scoped decision"}
+{"q": "database migrations rollback", "must_contain": "migration", "note": "plain topical hit"}
+{"q": "context deadlines across service calls", "must_contain": "deadline", "note": "plain topical hit"}
+{"q": "source of truth for orders", "must_contain": "orders", "must_not_contain": "order_events", "note": "ENTITY — two true decisions about different tables; the wrong one is a wrong answer"}
+{"q": "source of truth for order_events", "must_contain": "order_events", "must_not_contain": "sole store for orders", "note": "ENTITY — the other side of the confusable pair"}
+{"q": "should we fail closed when the store is down", "must_not_contain": "fail open", "note": "NEGATION — the corpus holds a fail-open rule; answering a fail-CLOSED question with it is reversed advice"}
+{"q": "do not retry failed requests", "must_not_contain": "retry failed calls with exponential", "note": "NEGATION — returning the pro-retry rule inverts the stated intent"}
+{"q": "disable rate limiting", "must_not_contain": "implement rate limiting", "note": "NEGATION — answering how to turn it off with how to build it"}

@@ -335,6 +335,25 @@ func (en *Engine) RecallWithDiag(ctx context.Context, queryContext []string, cha
 	// no longer returns non-book items.
 	hardFacets := hardFilterTags(tagParts, en.cfg, chain...)
 
+	guardPolarity := en.cfg.F("rank.polarity_guard", 1, chain...) > 0
+
+	// ENTITY GUARD. Only meaningful when the query actually names a subject the corpus facets on —
+	// otherwise every scoped decision would be dropped for every unscoped question.
+	entityPrefixes := splitCSV(en.cfg.Str("rank.entity_facets", "table:,service:,entity:", chain...))
+	qTokens := set(lexTokens(strings.ToLower(queryText)))
+
+	corpusEntities := map[string]bool{}
+
+	for _, d := range en.store.Active() {
+		for _, sc := range d.Scope {
+			if p, v, ok := strings.Cut(strings.ToLower(sc), ":"); ok && containsStr(entityPrefixes, p+":") {
+				corpusEntities[v] = true
+			}
+		}
+	}
+
+	guardEntity := en.cfg.F("rank.entity_guard", 1, chain...) > 0 && queryNamesEntity(qTokens, corpusEntities)
+
 	// Isolation is checked from the DATA side and is not configurable — see isolationOK.
 	queryTags := lowerTagSet(tagParts)
 
@@ -389,6 +408,20 @@ func (en *Engine) RecallWithDiag(ctx context.Context, queryContext []string, cha
 
 		ok, spec := scopeMatch(d.Scope, cset)
 		if hardScope && !ok {
+			continue
+		}
+
+		// POLARITY GUARD. Drop a decision that asserts the OPPOSITE of what was asked. Returning the
+		// exact reverse of the question is the worst output this system can produce, and it arrives
+		// with maximum confidence — no similarity or confidence signal can see it, because the two
+		// texts are topically identical and differ by one token. Silence is a correct answer here.
+		if guardPolarity && polarityConflict(queryText, d.What+" "+d.Why, en.cfg, chain...) {
+			continue
+		}
+
+		// A decision faceted on a different subject than the one asked about is not an answer to
+		// this question, however similar it reads.
+		if guardEntity && entityConflict(qTokens, d.Scope, entityPrefixes) {
 			continue
 		}
 

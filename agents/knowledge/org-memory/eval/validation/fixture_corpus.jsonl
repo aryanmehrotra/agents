@@ -1,0 +1,20 @@
+{"what": "Fail open when the rate limiter's backing store is unavailable", "why": "a cache outage must not take down the write path", "scope": ["repo:acme", "service:gateway"]}
+{"what": "Fail closed on auth service errors", "why": "deny the request rather than admit unauthenticated traffic", "scope": ["repo:acme", "service:auth"]}
+{"what": "Retry failed calls with exponential backoff plus random jitter", "why": "jitter prevents a thundering herd on recovery", "scope": ["repo:acme"]}
+{"what": "Do not retry non-idempotent writes", "why": "a duplicate charge is worse than a failed one", "scope": ["repo:acme", "service:pay"]}
+{"what": "Implement rate limiting server-side as middleware or in the gateway", "why": "client-side limits are advisory and trivially bypassed", "scope": ["repo:acme", "service:gateway"]}
+{"what": "Disable rate limiting for internal service-to-service calls", "why": "internal callers are already capacity-planned and limiting them causes cascading retries", "scope": ["repo:acme", "service:gateway"]}
+{"what": "Wrap synchronous downstream calls in a circuit breaker", "why": "failing fast frees caller resources and lets the downstream recover", "scope": ["repo:acme"]}
+{"what": "Drain in-flight connections on graceful shutdown before exit", "why": "killing live requests surfaces as user-visible 502s during every deploy", "scope": ["repo:acme"]}
+{"what": "ClickHouse is the sole store for orders with no MySQL dual-write", "why": "breakdown, snapshot and trend reads all resolve from one source, avoiding divergence", "scope": ["repo:acme", "table:orders"]}
+{"what": "MySQL order_events is the source of truth and the ClickHouse tables are best-effort replicas", "why": "writes go to both stores, so one authoritative store avoids divergence", "scope": ["repo:acme", "table:order_events"]}
+{"what": "Money must be stored as int64 cents and never as a float", "why": "float rounding caused a reconciliation incident", "scope": ["repo:acme", "service:pay"]}
+{"what": "Configure the service via environment variables in a configs directory", "why": "keeps deployment config out of the binary and out of version control", "scope": ["repo:acme"]}
+{"what": "Write middleware with the standard net/http handler signature", "why": "keeps middleware composable with anything in the ecosystem", "scope": ["repo:acme"]}
+{"what": "Emit structured JSON logs with a correlation id on every request", "why": "unstructured logs cannot be joined across services during an incident", "scope": ["repo:acme"]}
+{"what": "Add application-level trace spans inside handlers", "why": "framework spans stop at the handler boundary and hide the slow part", "scope": ["repo:acme"]}
+{"what": "Run database migrations forward-only with an explicit rollback script", "why": "auto-rollback on a partially applied migration corrupts more than it fixes", "scope": ["repo:acme"]}
+{"what": "Set logging verbosity with the LOG_LEVEL environment variable", "why": "changing verbosity must not require a redeploy during an incident", "scope": ["repo:acme"]}
+{"what": "Propagate context deadlines across every internal service call", "why": "a call without a deadline can outlive the request that started it", "scope": ["repo:acme"]}
+{"what": "Cache read-heavy endpoints behind a short TTL with stale-while-revalidate", "why": "a stampede on expiry is worse than serving a slightly stale response", "scope": ["repo:acme"]}
+{"what": "Never log request bodies containing payment details", "why": "logs are replicated widely and retained far longer than the data policy allows", "scope": ["repo:acme", "service:pay"]}
