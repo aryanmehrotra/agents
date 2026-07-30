@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // idFor derives a stable content ID from what+scope, so re-recording the same knowledge
@@ -121,6 +122,18 @@ func hasAllTags(scope, required []string) bool {
 	}
 
 	return true
+}
+
+// hasAlnum reports whether s contains at least one letter or digit — i.e. real query content, as
+// opposed to blank/whitespace/punctuation-only input that would embed to a meaningless vector.
+func hasAlnum(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // contextSet builds the lowercased tag set a recall runs against.

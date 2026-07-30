@@ -150,11 +150,12 @@ func (en *Engine) Recall(ctx context.Context, queryContext []string, chain ...st
 		}
 	}
 
-	// No free text → nothing to match on semantically. Embedding an empty string yields a constant
-	// vector that spuriously "matches" a fixed few decisions, so a blank/whitespace/scope-only query
-	// must return NOTHING rather than canned advice.
+	// No real query content → nothing to match on semantically. Embedding an empty or
+	// punctuation-only string yields a near-constant vector that spuriously "matches" a fixed few
+	// decisions, so a blank / whitespace / symbols-only / scope-only query must return NOTHING. We
+	// require at least one alphanumeric character before attempting semantic recall.
 	queryText := strings.TrimSpace(strings.Join(textParts, " "))
-	if queryText == "" {
+	if !hasAlnum(queryText) {
 		atomic.AddInt64(&en.recalls, 1)
 		atomic.AddInt64(&en.recallsEmpty, 1)
 
