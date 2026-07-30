@@ -7,3 +7,9 @@ memory.json.tmp
 *.db-shm
 org-memory.db
 org-memory.db-*
+
+# eval DATA (contains decision content) — keep the harness + aggregate results only
+eval/corpus.json
+eval/_eligible.json
+eval/sample_*.json
+eval/queries_*.jsonl
