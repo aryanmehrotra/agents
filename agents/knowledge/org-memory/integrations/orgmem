@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""orgmem — a one-line CLI for the parts you were doing by hand.
+
+WHY THIS EXISTS. Retrieval got tuned for days; ingestion stayed a curl invocation with hand-written
+JSON. That asymmetry is the actual bottleneck. Three of this system's measured "retrieval defects"
+turned out not to be ranking at all — the corpus simply did not contain the decision. Re-ranking
+reorders what exists; it cannot invent what was never written down. So the highest-leverage change
+available is making capture cost one line instead of one JSON document.
+
+    orgmem capture "never deploy on fridays" --why "3 of our last 5 rollbacks"
+    orgmem gaps                 # what it was asked and could not answer — a work list, not a metric
+    orgmem why "retry policy"   # what it already knows, before you write a duplicate
+    orgmem status
+
+Env: ORG_MEMORY_URL (default http://localhost:8000), ORG_MEMORY_TOKEN (only if a write token is set),
+ORG_MEMORY_AUTHOR (defaults to git user.name).
+
+Written in one language on purpose. The first draft was bash wrapping inline python, and a single
+quote inside a single-quoted heredoc had already broken this project's hook once — silently, because
+the failure was swallowed by `|| true`. One layer, no quoting seams.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+BASE = os.environ.get("ORG_MEMORY_URL", "http://localhost:8000").rstrip("/")
+TOKEN = os.environ.get("ORG_MEMORY_TOKEN", "")
+
+
+class Down(Exception):
+    """The service is not reachable. Distinct from an error the service itself reported."""
+
+
+def call(path, body=None, timeout=60):
+    url = BASE + path
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"}
+
+    if TOKEN:
+        headers["X-Org-Memory-Token"] = TOKEN
+
+    req = urllib.request.Request(url, data=data, headers=headers)
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp).get("data", {})
+    except urllib.error.HTTPError as e:
+        # The service answered — surface what it said rather than a generic failure.
+        try:
+            payload = json.load(e)
+            raise SystemExit("orgmem: " + json.dumps(payload.get("error", payload)))
+        except (ValueError, AttributeError):
+            raise SystemExit(f"orgmem: HTTP {e.code} from {path}")
+    except Exception as e:
+        raise Down(str(e))
+
+
+def git(*args):
+    try:
+        out = subprocess.run(("git",) + args, capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def default_scope():
+    """Scope defaults to the repo you are standing in.
+
+    Capture happens mid-work, and an unscoped decision is one that surfaces everywhere or nowhere.
+    Making the common case automatic is the difference between a tool used daily and one used twice.
+    """
+    root = git("rev-parse", "--show-toplevel")
+    return ["repo:" + os.path.basename(root)] if root else []
+
+
+def cmd_capture(a):
+    scope = [s.strip() for s in a.scope.split(",") if s.strip()] if a.scope else default_scope()
+    author = a.author or os.environ.get("ORG_MEMORY_AUTHOR") or git("config", "user.name") or "unknown"
+
+    d = call("/capture", {
+        "what": a.what,
+        "why": a.why or "",
+        "scope": scope,
+        "source": a.source or "",
+        "provenance": author,
+    })
+
+    dec = d.get("decision") or d
+    print("captured " + str(dec.get("id", "?")))
+    print("  " + str(dec.get("what", "")))
+
+    if scope:
+        print("  scope: " + ", ".join(scope))
+
+    # If this closes a gap the system had already recorded, say so — that is the loop actually
+    # closing, and it is the only moment the user sees their capture pay for itself.
+    if a.resolves:
+        # have_rule=True is load-bearing. The resolve endpoint reads False as "the silence was
+        # correct, drop the gap" — which is the exact opposite of what just happened. We captured a
+        # rule that answers the question, so the gap closes because it is ANSWERED, not because it
+        # was never real. Getting this backwards would teach the calibration loop the wrong lesson.
+        r = call("/gaps/resolve", {"query": a.resolves, "have_rule": True})
+
+        if r.get("ok") is False:
+            print("  note: %r was not on the gap list — nothing to resolve" % a.resolves)
+        else:
+            print("  closed gap: " + a.resolves)
+
+    return 0
+
+
+def cmd_gaps(a):
+    d = call("/gaps?min_count=%d" % a.min_count, timeout=20)
+    gaps = d.get("gaps") or []
+
+    if not gaps:
+        print("no gaps — nothing was asked repeatedly and left unanswered")
+        return 0
+
+    print("%d question(s) this memory could not answer:\n" % len(gaps))
+
+    for g in gaps:
+        mark = "CONFIRMED " if g.get("confirmed") else ""
+        print("  %s%dx  %s" % (mark, g.get("count", 1), g.get("query", "")))
+
+        short = g.get("short_by")
+        if isinstance(short, (int, float)):
+            print("        closest match fell %.3f short of the bar" % short)
+
+    print('\nclose one:  orgmem capture "<the rule>" --why "<why>" --resolves "%s"' % gaps[0].get("query", ""))
+    return 0
+
+
+def cmd_why(a):
+    d = call("/recall?" + urllib.parse.urlencode({"q": a.question}), timeout=90)
+    items = d.get("items") or []
+
+    if not items:
+        # An empty answer is a real answer in this system, not a failure. Say that plainly, or the
+        # user reads silence as breakage and stops trusting the abstention that took months to earn.
+        print("nothing — best candidate scored %.3f against a %.3f bar" % (
+            d.get("top_candidate_similarity") or 0.0, d.get("floor") or 0.0))
+        print("that is an answer, not a failure. if it should know this, capture it.")
+        return 0
+
+    flag = "  [low confidence]" if d.get("weak") else ""
+    print("%d decision(s)%s:\n" % (len(items), flag))
+
+    for it in items:
+        dec = it.get("decision", {})
+        print("  " + dec.get("what", ""))
+
+        if dec.get("why"):
+            print("    why: " + dec["why"])
+
+        print("    %s   sim %.3f\n" % (dec.get("id", "?"), it.get("similarity") or 0.0))
+
+    return 0
+
+
+def cmd_status(a):
+    d = call("/stats", timeout=15)
+    print("service UP   %s decisions" % d.get("decisions", "?"))
+    print("  recalls    %s (%s empty — abstentions, which are correct)" % (
+        d.get("recalls", 0), d.get("recalls_empty", 0)))
+    print("  labels     helpful=%s not_relevant=%s wrong=%s" % (
+        d.get("helpful", 0), d.get("not_relevant", 0), d.get("wrong", 0)))
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="orgmem", description="capture and query your team's decisions")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("capture", help="record a decision")
+    c.add_argument("what")
+    c.add_argument("--why", default="")
+    c.add_argument("--scope", default="", help="comma-separated; defaults to repo:<current repo>")
+    c.add_argument("--source", default="")
+    c.add_argument("--as", dest="author", default="")
+    c.add_argument("--resolves", default="", help="a gap query this decision answers")
+    c.set_defaults(fn=cmd_capture)
+
+    g = sub.add_parser("gaps", help="questions it could not answer")
+    g.add_argument("--min-count", type=int, default=1)
+    g.set_defaults(fn=cmd_gaps)
+
+    w = sub.add_parser("why", help="what it already knows")
+    w.add_argument("question")
+    w.set_defaults(fn=cmd_why)
+
+    s = sub.add_parser("status", help="service health and label counts")
+    s.set_defaults(fn=cmd_status)
+
+    args = ap.parse_args()
+
+    try:
+        return args.fn(args)
+    except Down as e:
+        print("orgmem: cannot reach %s (%s)" % (BASE, e), file=sys.stderr)
+        print("  start it:  launchctl kickstart -k gui/$(id -u)/com.aryanmehrotra.orgmem", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
