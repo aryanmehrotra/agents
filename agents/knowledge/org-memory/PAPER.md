@@ -130,7 +130,17 @@ The implemented system is a small, local, zero-config service exposing recall as
 
 ---
 
-## 7. Evaluation protocol (planned — no results reported)
+## 6.1 Scalability
+
+Two cost axes matter: query latency and the growth of the index and the LLM bill.
+
+**Measured latency.** On the 1,643-decision corpus the recall path runs at **p50 ≈ 78 ms, p95 ≈ 120 ms** (30-call sample, warm). This is dominated by the single query-embedding model call; the exact-cosine scan over all 1,643 vectors is sub-millisecond. The current store is deliberately **brute-force exact** (O(N·d) per query) because at this scale exact nearest-neighbour is both correct and fast, and it removes ANN recall loss as a confound while the retrieval/abstention logic is being validated.
+
+**Growth.** The exact scan is linear in corpus size N; it remains sub-∼10 ms to roughly 10⁴–10⁵ decisions, beyond which an approximate-nearest-neighbour index (HNSW/DiskANN; Malkov & Yashunin 2018; Gollapudi et al. 2023) replaces it, trading a small, measurable recall loss for sub-linear query time at 10⁶+. Crucially, the abstention and ranking logic (floor, bounded priors, hard facet filters) operate on the candidate set the index returns and are index-agnostic, so the honesty properties are preserved across the swap.
+
+**The cost asymmetry that makes this cheap.** The LLM/embedding cost scales with **capture** volume — each decision is embedded once at write — not with **query** volume: a recall issues at most one (cacheable) query embedding and *zero* generative-model calls. So read QPS scales with commodity horizontal replicas of a stateless read path, while the expensive path (capture, and any future correctness scoring) is asynchronous and off the hot path. Multi-tenant deployments partition the index per tenant, which bounds per-query N and simultaneously provides the read-isolation the current single-process prototype lacks (§9). These are design claims about the architecture, validated only at prototype scale here; a latency-vs-N curve and an ANN recall-loss measurement are part of the evaluation protocol below.
+
+## 7. Evaluation (§7.1–7.2 executed; remainder a labelled protocol)
 
 **This section is a protocol.** No comparative numbers are reported anywhere in this paper; producing them is future work, and fabricating them would violate the very thesis (§4) that the system refuses to report unidentifiable quantities. Every metric below is *planned*.
 
@@ -167,6 +177,10 @@ We ran a first executed evaluation of the two properties the thesis turns on: re
 **Finding.** On *retrieval quality* the two are comparable — BM25 is a famously strong baseline (Thakur et al. 2021), and we make no claim of dense superiority on ranking here (BM25 is marginally ahead at Recall@1, dense at Recall@3/MRR). The separation is entirely in **abstention**: the calibrated floor returns nothing on **100%** of off-topic queries, while BM25, lacking any calibrated cut-off, injects irrelevant context on **75%** of them (it abstains only when no query term overlaps any document). Meanwhile the floor did **not** cost coverage — it wrongly rejected **0%** of answerable queries in this set. This is direct, if preliminary, support for the paper's claim: the value of an organizational memory is not out-ranking a lexical baseline, it is **knowing when to stay silent**, which a system without a calibrated abstention decision cannot do. Caveat: the answerable labels are LLM-generated paraphrase; a human-gold set and the mem0/Zep baselines remain future work.
 
 ---
+
+### 7.3 Withholding-A/B pilot: inconclusive, and why (reported honestly)
+
+We attempted a first 3-arm pilot of the north-star "saves" metric — control (no memory), treatment (live recall), oracle (decision handed to the agent) — over 12 scenarios, each a coding task whose naive default was meant to violate a real prior decision, with an anonymized LLM judge. **It was inconclusive**, and an adversarial methodology review (a red-team of our own experiment) identified why: (i) a **control ceiling** — the base model complied on all 12 scenarios with no memory, because the sampled decisions were canonical best-practices it already knows from pretraining, so no arm could improve on it; (ii) several task prompts **leaked** the target; (iii) a single unvalidated LLM judge returned 36/36 "compliant" with no rationales or negative control; (iv) live retrieval surfaced the exact target in 0/12 (an exact-ID lower bound on an adversarial, worst-case task set); and (v) at N=12, Wilson 95% intervals are ≈ ±25–40 pp, so no lift under ~50 pp is detectable. We report this as a **failed pilot**, not a result. Its one legitimate lesson shapes the design's evaluation: **the memory's value must be demonstrated on org-idiosyncratic decisions a model cannot know a priori**, using pilot-verified control-failure scenarios, executable (not LLM-judged) compliance checks, a placebo arm to separate instruction-following from content, logged retrieval traces scored for semantic equivalence, and N≈50–100. That is the experiment §7's protocol now specifies.
 
 ## 8. Related work
 

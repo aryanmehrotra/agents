@@ -8,8 +8,17 @@ memory.json.tmp
 org-memory.db
 org-memory.db-*
 
-# eval DATA (contains decision content) — keep the harness + aggregate results only
+# eval DATA (contains decision content / model answers) — keep harness + aggregate results only
 eval/corpus.json
 eval/_eligible.json
 eval/sample_*.json
 eval/queries_*.jsonl
+eval/scenarios.jsonl
+eval/control_tasks.jsonl
+eval/control.jsonl
+eval/treatment.jsonl
+eval/oracle.jsonl
+eval/judge_input.jsonl
+eval/judge_out.jsonl
+eval/judge_map.json
+eval/judgments.jsonl
