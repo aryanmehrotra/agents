@@ -38,3 +38,8 @@ eval/v2_exec_r1.jsonl
 eval/v2_exec_r2.jsonl
 eval/*.check.jsonl
 eval/v2_exec_retry_input.jsonl
+eval/v2c_judge_input.jsonl
+eval/v2c_judge_out.jsonl
+eval/v2c_judge_out_fable.jsonl
+eval/v2c_judge_map.json
+eval/v2_exec_final.jsonl
