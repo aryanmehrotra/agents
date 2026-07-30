@@ -51,6 +51,8 @@ def load_queries(path):
 
 
 def recall(url, q, k):
+    # top_k NARROWS only (the server clamps to its configured value). If the server is configured
+    # BELOW k this measures precision@<config>, so main() checks and says so rather than mislabelling.
     params = urllib.parse.urlencode({"q": q, "top_k": str(k)})
     with urllib.request.urlopen(f"{url}/recall?{params}", timeout=90) as resp:
         return json.load(resp)["data"]
@@ -121,6 +123,18 @@ def main():
     args = ap.parse_args()
 
     queries = load_queries(args.queries)
+
+    # Report the k actually in force. The previous version printed the k it ASKED for, which the
+    # server ignored — a metric that silently mislabels itself is worse than no metric.
+    try:
+        configured = int(json.load(urllib.request.urlopen(f"{args.url}/config?key=retrieve.top_k"))["data"]["value"] or 3)
+    except Exception:
+        configured = 3
+
+    effective = min(args.k, configured)
+    if effective != args.k:
+        print(f"note: server top_k={configured}, so this is precision@{effective}, not @{args.k}")
+        args.k = effective
 
     if not args.sweep:
         hits, total, misses = evaluate(args.url, queries, args.k)

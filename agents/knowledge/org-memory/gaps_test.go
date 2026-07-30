@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,8 +14,8 @@ func TestGapLogOnlyTracksNearMisses(t *testing.T) {
 	g := newGapLog(100)
 	now := time.Now()
 
-	g.record("should we fail closed when redis is down", 0.62, 0.65, true, 3, now)
-	g.record("what is the capital of France", 0.20, 0.65, false, 3, now)
+	g.record("should we fail closed when redis is down", nil, 0.62, 0.65, true, 3, now)
+	g.record("what is the capital of France", nil, 0.20, 0.65, false, 3, now)
 
 	got := g.Report(1, 0)
 	if len(got) != 1 {
@@ -32,10 +34,10 @@ func TestGapLogRanksByRepetition(t *testing.T) {
 	now := time.Now()
 
 	for i := 0; i < 5; i++ {
-		g.record("do not retry failed requests", 0.60, 0.65, true, 3, now)
+		g.record("do not retry failed requests", nil, 0.60, 0.65, true, 3, now)
 	}
 
-	g.record("something asked once", 0.649, 0.65, true, 3, now) // a much nearer miss, but seen once
+	g.record("something asked once", nil, 0.649, 0.65, true, 3, now) // a much nearer miss, but seen once
 
 	got := g.Report(1, 0)
 	if len(got) != 2 {
@@ -58,9 +60,9 @@ func TestGapLogAggregatesPhrasings(t *testing.T) {
 	g := newGapLog(100)
 	now := time.Now()
 
-	g.record("Should we fail closed for redis?", 0.60, 0.65, true, 3, now)
-	g.record("should we fail closed for redis", 0.62, 0.65, true, 3, now)
-	g.record("  SHOULD WE FAIL CLOSED FOR REDIS!!  ", 0.61, 0.65, true, 3, now)
+	g.record("Should we fail closed for redis?", nil, 0.60, 0.65, true, 3, now)
+	g.record("should we fail closed for redis", nil, 0.62, 0.65, true, 3, now)
+	g.record("  SHOULD WE FAIL CLOSED FOR REDIS!!  ", nil, 0.61, 0.65, true, 3, now)
 
 	got := g.Report(1, 0)
 	if len(got) != 1 {
@@ -84,11 +86,11 @@ func TestGapLogIsBounded(t *testing.T) {
 	now := time.Now()
 
 	for i := 0; i < 4; i++ {
-		g.record("important recurring question", 0.62, 0.65, true, 3, now.Add(time.Duration(i)*time.Second))
+		g.record("important recurring question", nil, 0.62, 0.65, true, 3, now.Add(time.Duration(i)*time.Second))
 	}
 
 	for _, q := range []string{"one off a", "one off b", "one off c", "one off d"} {
-		g.record(q, 0.62, 0.65, true, 1, now)
+		g.record(q, nil, 0.62, 0.65, true, 1, now)
 	}
 
 	got := g.Report(1, 0)
@@ -113,9 +115,9 @@ func TestGapLogRejectsInsubstantialQueries(t *testing.T) {
 	g := newGapLog(100)
 	now := time.Now()
 
-	g.record("test it and fic it", 0.641, 0.653, true, 3, now)
-	g.record("do it now", 0.640, 0.653, true, 3, now)
-	g.record("kubernetes ingress nginx annotations", 0.621, 0.653, true, 3, now)
+	g.record("test it and fic it", nil, 0.641, 0.653, true, 3, now)
+	g.record("do it now", nil, 0.640, 0.653, true, 3, now)
+	g.record("kubernetes ingress nginx annotations", nil, 0.621, 0.653, true, 3, now)
 
 	got := g.Report(1, 0)
 	if len(got) != 1 {
@@ -136,7 +138,7 @@ func TestGapResolveClosesTheLoop(t *testing.T) {
 
 	const q = "terraform state locking backend"
 
-	g.record(q, 0.62, 0.65, true, 3, now)
+	g.record(q, nil, 0.62, 0.65, true, 3, now)
 
 	// "no — correctly silent" drops it, so the same non-question stops being asked about.
 	if !g.resolve(q, false, now) {
@@ -148,15 +150,15 @@ func TestGapResolveClosesTheLoop(t *testing.T) {
 	}
 
 	// ...and it STAYS silenced: re-asking must not re-record it, or the answer meant nothing.
-	g.record(q, 0.62, 0.65, true, 3, now)
+	g.record(q, nil, 0.62, 0.65, true, 3, now)
 
 	if len(g.Report(1, 0)) != 0 {
 		t.Error("a silenced question must not come back on the next identical query")
 	}
 
 	// "yes — we have a rule" overrides the earlier "no" and promotes it above statistical evidence.
-	g.record("some other question entirely here", 0.62, 0.65, true, 3, now)
-	g.record("some other question entirely here", 0.62, 0.65, true, 3, now) // seen twice
+	g.record("some other question entirely here", nil, 0.62, 0.65, true, 3, now)
+	g.record("some other question entirely here", nil, 0.62, 0.65, true, 3, now) // seen twice
 
 	if !g.resolve(q, true, now) {
 		t.Fatal("a later yes must be able to override an earlier correctly-silent verdict")
@@ -184,7 +186,7 @@ func TestGapLogNeverEvictsConfirmed(t *testing.T) {
 
 	const kept = "terraform remote state locking backend"
 
-	g.record(kept, 0.62, 0.65, true, 3, now)
+	g.record(kept, nil, 0.62, 0.65, true, 3, now)
 	g.resolve(kept, true, now)
 
 	for _, q := range []string{
@@ -192,7 +194,7 @@ func TestGapLogNeverEvictsConfirmed(t *testing.T) {
 		"redis cluster failover behaviour", "grpc deadline propagation rules",
 		"otel span naming conventions", "envoy retry budget configuration",
 	} {
-		g.record(q, 0.62, 0.65, true, 3, now)
+		g.record(q, nil, 0.62, 0.65, true, 3, now)
 	}
 
 	for _, e := range g.Report(1, 0) {
@@ -226,10 +228,10 @@ func TestGapLogSurvivesRestart(t *testing.T) {
 
 	diag := RecallDiag{TopSimilarity: 0.62, Floor: 0.65}
 	for i := 0; i < 3; i++ {
-		en.recordGap(asked, diag)
+		en.recordGap(asked, nil, diag)
 	}
 
-	en.recordGap(silenced, diag)
+	en.recordGap(silenced, nil, diag)
 
 	if !en.ResolveGap(silenced, false) {
 		t.Fatal("precondition: the silence verdict should apply")
@@ -258,11 +260,107 @@ func TestGapLogSurvivesRestart(t *testing.T) {
 		t.Error("a silenced question came back after restart")
 	}
 
-	reopened.recordGap(silenced, diag)
+	reopened.recordGap(silenced, nil, diag)
 
 	for _, e := range reopened.Gaps(1, 0) {
 		if e.Query == silenced {
 			t.Error("a silenced question was re-recorded after restart")
 		}
+	}
+}
+
+// TestMachineTextNeverBecomesAGap pins the production bug: once the recall hook was attached to every
+// prompt, tool-output envelopes landed on the gap list as if a human had asked them.
+func TestMachineTextNeverBecomesAGap(t *testing.T) {
+	junk := []string{
+		"<task-notification><task-id>a796c522c01efe9dd</task-id><status>completed</status>",
+		"<system-reminder>the task tools have not been used recently</system-reminder>",
+		"</function_results> deploy the gateway service now",
+		strings.Repeat("pasted stack trace line ", 40),
+	}
+
+	real := []string{
+		"terraform remote state locking backend",
+		"should we fail closed when the auth service is down",
+		"what is our retry policy for non-idempotent writes",
+		"is a < b the right comparison for cursor pagination", // an angle bracket, but not a tag
+	}
+
+	g := newGapLog(64)
+	now := time.Now()
+
+	for _, q := range junk {
+		if g.record(q, nil, 0.62, 0.65, true, 2, now) {
+			t.Errorf("machine text landed on the gap list: %.60q", q)
+		}
+	}
+
+	for _, q := range real {
+		if !g.record(q, nil, 0.62, 0.65, true, 2, now) {
+			t.Errorf("genuine question was rejected as machine text: %q", q)
+		}
+	}
+
+	if got := len(g.Report(1, 100)); got != len(real) {
+		t.Fatalf("gap list holds %d entries, want %d", got, len(real))
+	}
+}
+
+// TestCaptureClosesTheGapItAnswers pins the loop closing. Before closeAnswered, capturing the answer
+// to a gap had no correct way to retire it: `have_rule=false` deleted it with the reason "the silence
+// was correct" (false — the silence was a hole), and `have_rule=true` promoted it to a CONFIRMED
+// missing decision and kept it listed forever. Either way the work list could not be emptied.
+func TestCaptureClosesTheGapItAnswers(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Set("retrieve.precision_floor", "0.12")
+
+	en := NewEngine(newMemStore(), newFakeEmbedder(), cfg)
+	ctx := context.Background()
+
+	const q = "what is our policy on deploying on fridays"
+
+	qv, err := en.embed.Embed(ctx, q, RoleQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	en.gaps.record(q, qv, 0.62, 0.65, true, 3, time.Now())
+
+	// An unrelated gap must survive — closeAnswered must not empty the list indiscriminately.
+	uv, _ := en.embed.Embed(ctx, "postgres connection pool sizing", RoleQuery)
+	en.gaps.record("postgres connection pool sizing", uv, 0.62, 0.65, true, 3, time.Now())
+
+	if got := len(en.gaps.Report(1, 0)); got != 2 {
+		t.Fatalf("expected 2 gaps before capture, got %d", got)
+	}
+
+	if _, err := en.Capture(ctx, Decision{What: q, Why: "friday deploys wait until monday to be noticed"}); err != nil {
+		t.Fatal(err)
+	}
+
+	left := en.gaps.Report(1, 0)
+	if len(left) != 1 {
+		t.Fatalf("capture should have closed exactly the gap it answered, %d left: %+v", len(left), left)
+	}
+
+	if left[0].Query == q {
+		t.Error("the answered gap is still on the work list")
+	}
+}
+
+// TestZeroFloorGapsAreNeverAutoClosed: gaps recorded from a WRONG verdict carry Floor 0 because no
+// retrieval threshold produced them. `cosine >= 0` holds for almost any pair, so without the guard
+// the very next capture — about anything at all — would silently close every one of them.
+func TestZeroFloorGapsAreNeverAutoClosed(t *testing.T) {
+	cfg := NewConfig()
+	en := NewEngine(newMemStore(), newFakeEmbedder(), cfg)
+	ctx := context.Background()
+
+	v, _ := en.embed.Embed(ctx, "which store is authoritative for orders", RoleQuery)
+	en.gaps.record("which store is authoritative for orders", v, 0, 0, true, 3, time.Now())
+
+	unrelated, _ := en.embed.Embed(ctx, "emit structured json logs with a correlation id", RoleQuery)
+	if closed := en.gaps.closeAnswered(unrelated); len(closed) != 0 {
+		t.Fatalf("a zero-floor gap was auto-closed by an unrelated capture: %v", closed)
 	}
 }

@@ -50,6 +50,9 @@ type GapEntry struct {
 	// Confirmed means a human answered the near-miss question with "yes, we have a rule for this" —
 	// promoting it from a statistical near-miss to a stated missing decision.
 	Confirmed bool `json:"confirmed"`
+	// Vec is the embedding of the question, kept so a later capture can tell whether it ANSWERED this
+	// gap. Persisted with the entry; stripped by Report() so the API never ships 768 floats per gap.
+	Vec []float32 `json:"vec,omitempty"`
 }
 
 // gapLog accumulates abstentions, keyed by a normalised query so re-phrasings of the same question
@@ -92,13 +95,17 @@ func newGapLog(max int) *gapLog {
 // lexical index uses. This is an explicit HEURISTIC, not a fitted quantity — it is a knob, it is
 // labelled as chosen rather than measured, and it is the crude proxy available for "is this actually
 // an information need". Better would be intent classification, which Phase 0 does not have.
-func (g *gapLog) record(query string, best, floor float64, near bool, minTokens int, now time.Time) bool {
+func (g *gapLog) record(query string, vec []float32, best, floor float64, near bool, minTokens int, now time.Time) bool {
 	q := normalizeGapQuery(query)
 	if q == "" || !near {
 		return false
 	}
 
 	if substanceTokens(q) < minTokens {
+		return false
+	}
+
+	if looksMachineGenerated(query) {
 		return false
 	}
 
@@ -125,7 +132,7 @@ func (g *gapLog) record(query string, best, floor float64, near bool, minTokens 
 	}
 
 	g.entries[q] = &GapEntry{
-		Query: query, Count: 1,
+		Query: query, Count: 1, Vec: vec,
 		BestSim: best, Floor: floor, ShortBy: round(floor - best),
 		FirstSeen: now, LastSeen: now,
 	}
@@ -173,7 +180,10 @@ func (g *gapLog) Report(minCount, limit int) []GapEntry {
 
 	for _, e := range g.entries {
 		if e.Count >= minCount {
-			out = append(out, *e)
+			c := *e
+			c.Vec = nil // callers get a work list, not 768 floats per row
+
+			out = append(out, c)
 		}
 	}
 
@@ -431,4 +441,109 @@ func (g *gapLog) restore(s gapSnapshot) {
 			g.silent[n] = true
 		}
 	}
+}
+
+// looksMachineGenerated rejects text that no human typed as a question.
+//
+// FOUND IN PRODUCTION, not in review. Once the recall hook was wired to every prompt, the gap list —
+// which is supposed to be a work list of things the org should write down — accumulated entries like
+// `<task-notification><task-id>a796c522…</task-id>` verbatim. The hook forwards whatever the prompt
+// contains, and a prompt can contain tool output, agent notifications, pasted logs or diffs.
+//
+// This matters more than tidiness. The gap list is an INPUT to calibration: `recallHealth` uses the
+// near-miss rate to decide when to ask the user questions, and `ask.go` surfaces gaps as prompts. A
+// polluted list spends the user's scarce attention asking them to write down a rule about a tool-use
+// id, which is the fastest way to make them stop answering — and the ask budget only works while
+// they still do. Fail-safe default (Saltzer & Schroeder, 1975): when unsure whether text is a real
+// information need, keep it OFF the list. A missed gap costs one unrecorded question; a false gap
+// costs credibility that the whole feedback loop runs on.
+//
+// Both signals are structural rather than semantic, so this needs no model and cannot be fooled into
+// dropping a genuine question: humans do not phrase questions as markup, and a multi-kilobyte prompt
+// is a paste, not an ask.
+func looksMachineGenerated(q string) bool {
+	if len(q) > machineTextBytes {
+		return true
+	}
+
+	// A tag-shaped token: `<word>` or `</word>`. Deliberately not a general HTML check — the target is
+	// structured envelopes (task-notification, system-reminder, function_results), and a question that
+	// happens to contain "a < b" has no closing angle bracket right after a word.
+	for i := 0; i < len(q)-1; i++ {
+		if q[i] != '<' {
+			continue
+		}
+
+		j := i + 1
+		if j < len(q) && q[j] == '/' {
+			j++
+		}
+
+		start := j
+
+		for j < len(q) && (isTagByte(q[j])) {
+			j++
+		}
+
+		if j > start && j < len(q) && q[j] == '>' {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isTagByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_'
+}
+
+// machineTextBytes is the length past which a "query" is a paste rather than a question. Chosen, not
+// fitted: the longest genuine question in this project's 22 observed prompts is 96 bytes.
+const machineTextBytes = 512
+
+// closeAnswered drops every gap that a newly captured decision now answers, returning their queries.
+//
+// THIS IS THE LOOP ACTUALLY CLOSING. Before it, resolving a gap after capturing its answer had no
+// correct option: `have_rule=false` deleted the entry with the reason "the silence was correct" —
+// false, the silence was a hole — and `have_rule=true` PROMOTED it to a confirmed missing decision
+// and kept it on the list, so the work list grew a permanent entry for work already done. A queue
+// whose items cannot be completed stops being read.
+//
+// The test is the same one recall would apply: does this decision clear the bar the question failed
+// to clear? `Floor` is the bar recorded at the time of the miss, which is the honest comparison —
+// it is exactly the threshold that produced the abstention being closed.
+//
+// Cheap by construction. The query embedding was already computed during the recall that recorded
+// the gap, so this is one cosine per gap against a bounded list — no embedding calls, no retrieval.
+func (g *gapLog) closeAnswered(emb []float32) []string {
+	if len(emb) == 0 {
+		return nil
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	var closed []string
+
+	for k, e := range g.entries {
+		if len(e.Vec) == 0 {
+			continue // recorded before vectors were kept; it can still be closed by hand
+		}
+
+		// A zero floor is not a bar, it is a missing one. Gaps recorded from a WRONG verdict carry
+		// Floor 0 because no retrieval threshold produced them — and `cosine >= 0` is true for almost
+		// any pair, so without this the very next capture would silently close every one of them.
+		if e.Floor <= 0 {
+			continue
+		}
+
+		if cosine(emb, e.Vec) >= e.Floor {
+			closed = append(closed, e.Query)
+			delete(g.entries, k)
+		}
+	}
+
+	sort.Strings(closed)
+
+	return closed
 }

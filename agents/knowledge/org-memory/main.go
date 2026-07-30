@@ -154,6 +154,8 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 	//   scope   = comma-separated scope tags (repo:x, service:y)        → matched, not embedded
 	//   author  = a person facet (WHO), a shorthand for scope author:…  → matched
 	//   context = legacy catch-all (still accepted; split into tag/text internally)
+	var chain []string
+
 	q := splitCSV(ctx.Param("context"))
 	q = append(q, splitCSV(ctx.Param("scope"))...)
 
@@ -165,7 +167,6 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 		q = append(q, "author:"+a)
 	}
 
-	var chain []string
 	if p := strings.TrimSpace(ctx.Param("person")); p != "" {
 		chain = append(chain, "person:"+p)
 	}
@@ -177,6 +178,21 @@ func recallHandler(ctx *gofr.Context) (any, error) {
 	items, diag, err := engine.RecallWithDiag(ctx, q, chain...)
 	if err != nil {
 		return nil, err
+	}
+
+	// Per-request top_k, NARROWING only. `?top_k=` used to be accepted and silently ignored: the eval
+	// harness sent it on every request and printed "precision@3" while actually measuring whatever the
+	// server config said. The numbers agreed by coincidence; the moment config changed, the harness
+	// would have mislabelled its own output with no way to notice.
+	//
+	// It narrows rather than widens because the alternative — mutating shared config per request —
+	// races between concurrent callers, and a scoped override would have to thread through the whole
+	// recall path for a parameter only an evaluator uses. A caller wanting MORE than the configured
+	// top_k should change the config, which is live-tunable and audited.
+	if raw := strings.TrimSpace(ctx.Param("top_k")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n < len(items) {
+			items = items[:n]
+		}
 	}
 
 	publishMetrics(ctx)

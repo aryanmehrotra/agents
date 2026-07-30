@@ -226,6 +226,13 @@ func (en *Engine) Capture(ctx context.Context, in Decision) (Decision, error) {
 	en.linkScopeEdges(d)
 	en.lexDirty.Store(true)
 
+	// Close any gap this decision now answers. The work list exists to be emptied, and a question that
+	// has just been written down should stop being asked about without the author having to remember
+	// to say so. See gaps.closeAnswered for why neither existing resolve path could express this.
+	if closed := en.gaps.closeAnswered(emb); len(closed) > 0 {
+		en.saveGaps()
+	}
+
 	return d, nil
 }
 
@@ -517,7 +524,7 @@ func (en *Engine) RecallWithDiag(ctx context.Context, queryContext []string, cha
 	// rather than in the handler, so every caller — HTTP, the MCP tool, the recall hook — feeds the
 	// same work list. See gaps.go for why "nearly" is the load-bearing word.
 	if len(items) == 0 {
-		diag.GapRecorded = en.recordGap(queryText, diag, chain...)
+		diag.GapRecorded = en.recordGap(queryText, qvec, diag, chain...)
 	}
 
 	// Remember what question surfaced each decision. If a human later marks one WRONG, that is the
@@ -692,7 +699,7 @@ func (en *Engine) RecordFeedback(f Feedback) error {
 		// is not confused, it is confidently serving the nearest wrong thing. Attribute it back to the
 		// question and put it on the capture work list. See recentQueries in gaps.go.
 		if q, ok := en.recent.get(f.DecisionID); ok {
-			if en.gaps.record(q, 0, 0, true, en.cfg.I("gaps.min_content_tokens", 3), time.Now().UTC()) {
+			if en.gaps.record(q, nil, 0, 0, true, en.cfg.I("gaps.min_content_tokens", 3), time.Now().UTC()) {
 				en.saveGaps()
 			}
 		}
@@ -932,11 +939,11 @@ func (en *Engine) Gaps(minCount, limit int) []GapEntry { return en.gaps.Report(m
 // not pollute the list: the value of a gap report is entirely in its signal-to-noise.
 // recordGap returns whether the question actually LANDED on the work list. Callers use the return
 // value instead of re-deriving "is this worth asking about" — see RecallDiag.GapRecorded.
-func (en *Engine) recordGap(query string, diag RecallDiag, chain ...string) bool {
+func (en *Engine) recordGap(query string, qvec []float32, diag RecallDiag, chain ...string) bool {
 	near := diag.TopSimilarity > 0 &&
 		diag.Floor-diag.TopSimilarity < en.cfg.F("gaps.near_miss", 0.08, chain...)
 
-	recorded := en.gaps.record(query, round(diag.TopSimilarity), round(diag.Floor), near,
+	recorded := en.gaps.record(query, qvec, round(diag.TopSimilarity), round(diag.Floor), near,
 		en.cfg.I("gaps.min_content_tokens", 3, chain...), time.Now().UTC())
 	if recorded {
 		en.saveGaps()
