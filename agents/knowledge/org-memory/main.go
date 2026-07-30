@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -450,6 +451,12 @@ func validateConfig(key, value string) (string, bool) {
 	f, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil {
 		return "`" + key + "` must be a number", false
+	}
+
+	// NaN/Inf slip past `f < lo || f > hi` (every comparison with NaN is false), which would leave a
+	// knob in an undefined state — reject them explicitly before the range check.
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return "`" + key + "` must be a finite number", false
 	}
 
 	if f < b[0] || f > b[1] {
