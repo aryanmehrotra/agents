@@ -7,23 +7,30 @@ import "sync"
 // sqliteStore for local persistence; Postgres+pgvector is the at-scale swap. Every implementation
 // MUST keep the one invariant: SUPERSEDE / QUARANTINE, NEVER DELETE — history is append-only.
 type Store interface {
-	Put(d Decision)                            // insert or replace by ID
-	Get(id string) (Decision, bool)            // fetch one (including superseded/quarantined)
-	Active() []Decision                        // non-superseded decisions — recall candidates
-	Supersede(oldID, newID string) bool        // mark old superseded + link to new; old row KEPT
-	Quarantine(id string) bool                 // stop surfacing; row KEPT
+	Put(d Decision)                             // insert or replace by ID
+	Get(id string) (Decision, bool)             // fetch one (including superseded/quarantined)
+	Active() []Decision                         // non-superseded decisions — recall candidates
+	Supersede(oldID, newID string) bool         // mark old superseded + link to new; old row KEPT
+	Quarantine(id string) bool                  // stop surfacing; row KEPT
 	LinkEdge(a, b, kind string, weight float64) // associative graph edge (for later graph-walk)
-	RecordFeedback(f Feedback)                 // append-only feedback event
-	Bump(id, signal string, delta int)         // adjust a materialized feedback counter
-	Stats(id string) Stats                     // read feedback counters
-	SetRelation(child, parent, status string)  // set/replace a scope relation (one parent per child)
-	Relations() []Relation                     // all scope relations
+	RecordFeedback(f Feedback)                  // append-only feedback event
+	Bump(id, signal string, delta int)          // adjust a materialized feedback counter
+	Stats(id string) Stats                      // read feedback counters
+	SetRelation(child, parent, status string)   // set/replace a scope relation (one parent per child)
+	Relations() []Relation                      // all scope relations
+
+	// Meta is a small durable key/value slot for engine state that is neither a decision nor a
+	// feedback event — currently the gap work list. Deliberately generic: the alternative was another
+	// pair of interface methods per feature, and every implementation paying for all of them.
+	GetMeta(key string) string
+	SetMeta(key, value string)
 }
 
 // memStore is the in-memory Store: concurrency-safe, deterministic, zero-dependency. It makes the
 // whole engine unit-testable with no external infra, and is a fine backing for personal/local use.
 type memStore struct {
 	mu        sync.RWMutex
+	meta      map[string]string
 	units     map[string]Decision
 	order     []string // insertion order → stable Active() output
 	stats     map[string]Stats
@@ -38,7 +45,7 @@ type edge struct {
 }
 
 func newMemStore() *memStore {
-	return &memStore{units: map[string]Decision{}, stats: map[string]Stats{}, relations: map[string]Relation{}}
+	return &memStore{units: map[string]Decision{}, stats: map[string]Stats{}, relations: map[string]Relation{}, meta: map[string]string{}}
 }
 
 func (s *memStore) Put(d Decision) {
@@ -170,4 +177,21 @@ func (s *memStore) Relations() []Relation {
 	}
 
 	return out
+}
+
+// GetMeta / SetMeta — the in-memory store is ephemeral by nature, so these are honest no-ops across
+// restarts. Persistence is the SQLite store's job, and the engine treats an empty value as "no
+// saved state" either way.
+func (s *memStore) GetMeta(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.meta[key]
+}
+
+func (s *memStore) SetMeta(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.meta[key] = value
 }

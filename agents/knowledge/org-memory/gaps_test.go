@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -201,4 +202,67 @@ func TestGapLogNeverEvictsConfirmed(t *testing.T) {
 	}
 
 	t.Error("a human-confirmed gap was evicted by anonymous churn")
+}
+
+// TestGapLogSurvivesRestart: the gap log is the one piece of engine state that cannot be
+// regenerated. Everything else here rebuilds in minutes of normal use, but "this question was asked
+// five times and never answered" is evidence accumulated over days — losing it on every restart
+// quietly made the capture work list useless, because it never survived long enough to act on.
+func TestGapLogSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gaps.db")
+
+	sq, err := newSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := NewConfig()
+	en := NewEngine(sq, newFakeEmbedder(), cfg)
+
+	const asked = "terraform remote state locking backend"
+
+	const silenced = "some question a human declared correctly silent"
+
+	diag := RecallDiag{TopSimilarity: 0.62, Floor: 0.65}
+	for i := 0; i < 3; i++ {
+		en.recordGap(asked, diag)
+	}
+
+	en.recordGap(silenced, diag)
+
+	if !en.ResolveGap(silenced, false) {
+		t.Fatal("precondition: the silence verdict should apply")
+	}
+
+	// Reopen with a completely fresh engine — the only thing carried over is the database.
+	sq2, err := newSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := NewEngine(sq2, newFakeEmbedder(), NewConfig())
+
+	got := reopened.Gaps(1, 0)
+	if len(got) != 1 {
+		t.Fatalf("expected the accumulated gap to survive, got %d entries", len(got))
+	}
+
+	if got[0].Query != asked || got[0].Count != 3 {
+		t.Errorf("evidence lost across restart: %+v", got[0])
+	}
+
+	// And the "correctly silent" verdict must survive too — otherwise a restart resurrects every
+	// question a human already told the system to stop asking about.
+	if !reopened.gaps.silenced(silenced) {
+		t.Error("a silenced question came back after restart")
+	}
+
+	reopened.recordGap(silenced, diag)
+
+	for _, e := range reopened.Gaps(1, 0) {
+		if e.Query == silenced {
+			t.Error("a silenced question was re-recorded after restart")
+		}
+	}
 }

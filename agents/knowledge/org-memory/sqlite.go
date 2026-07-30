@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS stats(
 CREATE TABLE IF NOT EXISTS edges(a TEXT, b TEXT, kind TEXT, weight REAL);
 CREATE TABLE IF NOT EXISTS feedback(
   seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT, signal TEXT, by_actor TEXT, note TEXT, ts TEXT);
-CREATE TABLE IF NOT EXISTS relations(child TEXT PRIMARY KEY, parent TEXT, status TEXT);`)
+CREATE TABLE IF NOT EXISTS relations(child TEXT PRIMARY KEY, parent TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);`)
 
 	return err
 }
@@ -193,11 +194,11 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanDecision(sc rowScanner) (Decision, error) {
 	var (
-		d                 Decision
-		scope             string
-		quar              int
-		blob              []byte
-		created, updated  string
+		d                Decision
+		scope            string
+		quar             int
+		blob             []byte
+		created, updated string
 	)
 
 	if err := sc.Scan(&d.ID, &d.What, &d.Why, &scope, &d.Provenance, &d.Source,
@@ -256,4 +257,19 @@ func tparse(s string) time.Time {
 	t, _ := time.Parse(time.RFC3339Nano, s)
 
 	return t
+}
+
+// GetMeta returns durable engine state, or "" when nothing is stored.
+func (s *sqliteStore) GetMeta(key string) string {
+	var v string
+
+	_ = s.db.QueryRow(`SELECT v FROM meta WHERE k=?`, key).Scan(&v)
+
+	return v
+}
+
+// SetMeta writes durable engine state. Whole-value upsert: the payloads are small and bounded, and a
+// snapshot cannot half-apply the way an incremental update can.
+func (s *sqliteStore) SetMeta(key, value string) {
+	_, _ = s.db.Exec(`INSERT INTO meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, key, value)
 }
