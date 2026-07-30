@@ -196,7 +196,18 @@ Rebuilt to the v1 red-team's specification: 26 **org-idiosyncratic** decisions a
 | **treatment (junior + live recall)** | **0/17 = 0%** | [0%, 18%] |
 | **oracle (junior + decision handed over)** | **17/17 = 100%** | [82%, 100%] |
 
-The oracle result validates the memory's **content**: given the decision as one authoritative instruction, the junior complies every time (+100% ceiling). The treatment result exposes a **deployment gap**, and it is *not* retrieval: recall surfaced the target decision on **16/17** of the necessary subset, yet treatment complied on **0**. In 16/17 cases the decision *was surfaced but under-applied* — the weak agent, handed a top-3 advisory list, paraphrased and dropped the org-specific mechanism (produced `FOR UPDATE` without `SKIP LOCKED`; a generic "batch read" instead of the aggregator gRPC path), which the strict check fails. **The bottleneck is not knowing what to surface, nor surfacing it — it is getting a weak agent to actually follow it.** This maps to the working-memory *central-executive* gap (Baddeley 2000): the context binds the decision but nothing forces action on it. It motivates injecting the single highest-confidence decision as an authoritative directive (not an advisory list) and a compliance-check-and-retry loop — both testable next steps. (Caveats: N=17 with wide intervals; single LLM judge with required evidence; a directional pilot, not a powered study.)
+The oracle result validates the memory's **content**: given the decision as one authoritative instruction, the junior complies every time (+100% ceiling). The treatment result exposes a **deployment gap**, and it is *not* retrieval: recall surfaced the target decision on **16/17** of the necessary subset, yet treatment complied on **0**. In 16/17 cases the decision *was surfaced but under-applied* — the weak agent, handed a top-3 advisory list, paraphrased and dropped the org-specific mechanism (produced `FOR UPDATE` without `SKIP LOCKED`; a generic "batch read" instead of the aggregator gRPC path), which the strict check fails. **The bottleneck is not knowing what to surface, nor surfacing it — it is getting a weak agent to actually follow it.** This maps to the working-memory *central-executive* gap (Baddeley 2000): the context binds the decision but nothing forces action on it. It motivates injecting the single highest-confidence decision as an authoritative directive (not an advisory list) and a compliance-check-and-retry loop.
+
+**We built and tested that fix (v2b).** The recall injection was changed to present, when the top match is confident, the single highest-ranked decision as a **mandatory directive** ("follow it unless you have a specific reason not to; apply its specific mechanism, not a generic default") with the remainder demoted to "also consider", plus a junior self-verify-and-retry step. Re-running the identical scenarios, junior model, and strict judge as a four-arm comparison on the necessary subset:
+
+| arm | compliance (necessary subset, N=13) | Wilson 95% |
+|---|---|---|
+| control (no memory) | 0% | — |
+| treatment (top-3 advisory list) | 0% | [0%, 23%] |
+| **directive (top-1 authoritative + retry)** | **85%** | [58%, 96%] |
+| oracle (decision handed over) | 100% | [77%, 100%] |
+
+With retrieval, agent, and decisions held fixed, changing only the injection format moved compliance from **0% → 85%**, closing most of the distance to the oracle ceiling. This confirms that the deployment gap was the *presentation of surfaced context to a weak agent*, not retrieval or content — an actionable, and now-shipped, design result. (Caveats: small N with wide intervals; a single anonymized evidence-quoting LLM judge; the retry is model self-report — an *executable* check-and-retry loop is the stronger form; a directional pilot, not a powered study.)
 
 ## 8. Related work
 
