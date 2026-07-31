@@ -66,6 +66,8 @@ type gapLog struct {
 	entries map[string]*GapEntry
 	silent  map[string]bool // questions a human declared "correctly silent" — never ask again
 	max     int
+	// rejected counts queries the intent guard suppressed, so an over-eager filter is visible.
+	rejected int
 }
 
 func newGapLog(max int) *gapLog {
@@ -546,4 +548,21 @@ func (g *gapLog) closeAnswered(emb []float32) []string {
 	sort.Strings(closed)
 
 	return closed
+}
+
+// countRejected tallies queries the intent guard kept off the list. A filter that silently drops
+// things is a filter nobody can audit — if the guard is over-eager, this counter is the only evidence
+// that will exist, because a dropped question leaves no other trace by construction.
+func (g *gapLog) countRejected() {
+	g.mu.Lock()
+	g.rejected++
+	g.mu.Unlock()
+}
+
+// RejectedCount reports how many queries the intent guard suppressed since start.
+func (g *gapLog) RejectedCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.rejected
 }

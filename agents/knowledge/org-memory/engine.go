@@ -943,6 +943,15 @@ func (en *Engine) recordGap(query string, qvec []float32, diag RecallDiag, chain
 	near := diag.TopSimilarity > 0 &&
 		diag.Floor-diag.TopSimilarity < en.cfg.F("gaps.near_miss", 0.08, chain...)
 
+	// An instruction to an assistant is not a question about the org. See intent.go — this is the
+	// single biggest source of noise on the work list (measured: 22 of 24 live entries), and the list
+	// feeds calibration, so noise here is spent human attention, not just clutter.
+	if looksDirective(query, en.cfg, chain...) {
+		en.gaps.countRejected()
+
+		return false
+	}
+
 	recorded := en.gaps.record(query, qvec, round(diag.TopSimilarity), round(diag.Floor), near,
 		en.cfg.I("gaps.min_content_tokens", 3, chain...), time.Now().UTC())
 	if recorded {
