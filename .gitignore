@@ -13,9 +13,9 @@ bin/
 .vscode/
 
 # compiled binaries (go build . emits one named after the module directory)
-/*/*-agent
+agents/*/*/*-agent
 orchestrator/orchestrator
 localtest/*/claude-openai-shim
 
 # sql-agent's seeded SQLite file, created at runtime
-sql-agent/*.db
+agents/*/sql-agent/*.db
