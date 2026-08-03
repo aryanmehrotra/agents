@@ -64,19 +64,20 @@ func TestMatchRoute(t *testing.T) {
 // entirely by the registry's per-agent keywords, with the default-route agent as the last resort.
 func TestKeywordFallback(t *testing.T) {
 	cases := map[string]string{
-		"please review this git diff":                           "review",
-		"summarize this long thread":                            "summarize",
-		"compare https://a.com and https://b.com":               "research",
-		"remind me in 10 minutes to deploy":                     "schedule",
-		"apply a codemod to rename getUser across the codebase": "migrate",
-		"scaffold a new service skeleton":                       "scaffold",
-		"write unit tests for this function":                    "testgen",
-		"find the flaky tests in our ci history":                "flaky",
-		"how many story points is this":                         "estimate",
-		"write a spec for the checkout flow":                    "spec",
-		"run a sql query on the sales database":                 "sql",
-		"how do I reset my vpn password":                        "kb",
-		"the app crashes with a panic":                          "support",
+		"please review this git diff":                             "review",
+		"summarize this long thread":                              "summarize",
+		"compare https://a.com and https://b.com":                 "research",
+		"remind me in 10 minutes to deploy":                       "schedule",
+		"apply a codemod to rename getUser across the codebase":   "migrate",
+		"scaffold a new service skeleton":                         "scaffold",
+		"write unit tests for this function":                      "testgen",
+		"find the flaky tests in our ci history":                  "flaky",
+		"pagerduty alert fired, need root cause for the incident": "triage",
+		"how many story points is this":                           "estimate",
+		"write a spec for the checkout flow":                      "spec",
+		"run a sql query on the sales database":                   "sql",
+		"how do I reset my vpn password":                          "kb",
+		"the app crashes with a panic":                            "support",
 		// No keyword → the default-route agent.
 		"what is our total shipped revenue": "data",
 		// Regression: an effort word embedded in a data question must NOT hijack estimate.
