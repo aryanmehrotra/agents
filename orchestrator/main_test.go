@@ -77,6 +77,7 @@ func TestKeywordFallback(t *testing.T) {
 		"run a sql query on the sales database":                 "sql",
 		"how do I reset my vpn password":                        "kb",
 		"the app crashes with a panic":                          "support",
+		"triage this alert and tell me who is on-call to page":  "triage",
 		// No keyword → the default-route agent.
 		"what is our total shipped revenue": "data",
 		// Regression: an effort word embedded in a data question must NOT hijack estimate.
