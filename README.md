@@ -34,6 +34,7 @@ flowchart TB
     ORCH --> GT
     ORCH --> GB
     ORCH --> GO
+    ORCH --> GP
 
     subgraph GA["🔎 Answer and retrieve"]
         direction TB
@@ -68,10 +69,16 @@ flowchart TB
         SC["🗓️ scheduler-agent"]
     end
 
+    subgraph GP["🚨 Operate"]
+        direction TB
+        IT["🚨 incident-triage-agent"]
+    end
+
     GA --> LLM["⚙️ GoFr LLM client · traces · token metrics · health"]
     GT --> LLM
     GB --> LLM
     GO --> LLM
+    GP --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
     Provider --> Ollama["Ollama · local"]
@@ -81,7 +88,7 @@ flowchart TB
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,WF,ORCH agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,IT,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -100,7 +107,7 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 
 ## 🤖 The agents
 
-19 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
+20 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
 proposes, Go disposes** — a deterministic guardrail validates every answer.
 
 🧭 **[`orchestrator`](orchestrator)** — the front door. Routes any query to the right agent, **LLM-first**
@@ -128,6 +135,9 @@ over a [capability registry](orchestrator), with a `/capabilities` discovery end
 - **[`migration-agent`](agents/sdlc/migration-agent)** — codemod across files, re-parsed so it can't corrupt
 - **[`test-gen-agent`](agents/sdlc/test-gen-agent)** — writes tests, then **compiles + runs** them
 - **[`flaky-test-agent`](agents/sdlc/flaky-test-agent)** — mines CI history for flaky tests, **detected in Go**
+
+**🚨 Operate**
+- **[`incident-triage-agent`](agents/sdlc/incident-triage-agent)** — alert → root cause, severity & owner; **severity + routing decided in Go**
 
 **🗓️ Automate & compose**
 - **[`scheduler-agent`](agents/automation/scheduler-agent)** — natural language → a task that actually fires later
@@ -246,6 +256,7 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | 8006 | memory-agent | | 8016 | migration-agent |
 | 8007 | sql-agent | | 8017 | test-gen-agent |
 | 8008 | research-agent | | 8018 | flaky-test-agent |
+| | | | 8019 | incident-triage-agent |
 | | | | 8088 | claude-openai-shim |
 
 Each agent is **its own directory and Go module**, grouped by capability:
@@ -255,7 +266,7 @@ orchestrator/          front door (LLM router + /capabilities)
 agents/
 ├── retrieval/         data · sql · kb · research · local-rag · support · memory
 ├── text/              summarizer · pii-redaction · extraction
-├── sdlc/              code-review · spec · estimation · scaffold · migration · test-gen · flaky-test
+├── sdlc/              code-review · spec · estimation · scaffold · migration · test-gen · flaky-test · incident-triage
 └── automation/        scheduler · workflow
 observability/         docker-compose: Jaeger + Prometheus + Grafana
 localtest/             the keyless claude-openai-shim
