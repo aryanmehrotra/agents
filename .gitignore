@@ -12,10 +12,12 @@ bin/
 .idea/
 .vscode/
 
-# compiled binaries (go build . emits one named after the module directory)
+# compiled binaries (go build . emits one named after the module directory).
+# Agents live nested under agents/<category>/<name>-agent/ — match at that depth, not just the root.
 /*/*-agent
+agents/*/*/*-agent
 orchestrator/orchestrator
 localtest/*/claude-openai-shim
 
-# sql-agent's seeded SQLite file, created at runtime
-sql-agent/*.db
+# a seeded SQLite file, created at runtime (e.g. sql-agent's)
+agents/*/*/*.db

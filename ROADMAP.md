@@ -26,6 +26,7 @@ auth, rate-limiting and resilience for free.
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 - **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
 - **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
+- **breaking-change-agent** — detects API/contract breaking changes in a diff before merge; the model proposes candidate breaks (category + file:line), Go verifies each against lines it parsed out of the diff itself (a hallucinated line never counts) and maps category to severity through a fixed table, so the model's own "breaking or not" opinion is never trusted directly
 
 ## Planned agents — the software development lifecycle
 
@@ -48,7 +49,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [x] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them ✅ *shipped*
 
 **Review & release**
-- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [x] **breaking-change-agent** — detect API/contract breaks in a diff before merge ✅ *shipped*
 - [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
 - [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
 
@@ -67,6 +68,25 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-08-06** — added **breaking-change-agent**: the review & release stage of the SDLC suite — it
+  reads a diff and decides whether it breaks a public API or data contract (a removed function, a
+  retyped field, a new required parameter, a dropped enum value). AI code review is one of the most
+  commercially proven agent categories, and API/schema compatibility checking is a leading capability
+  enterprise review suites are shipping as a dedicated review agent alongside it ([Qodo, "Best AI Code
+  Review Tools for Enterprise Teams in
+  2026"](https://www.qodo.ai/blog/best-ai-code-review-tools-for-enterprise-teams-in-2026/)). A model is
+  good at *spotting* a candidate break but can't be trusted to *judge* it — asked whether a diff is
+  breaking, it will confidently point at a line it never actually saw, and it has no fixed idea of
+  which categories of change are breaking versus cosmetic. So the model only proposes: for each
+  candidate it names a file, line, and a category from a closed set; Go parses the unified diff itself
+  and **rejects any finding whose file:line isn't a real changed line** (a hallucinated line, or one a
+  prompt-injected diff comment tried to plant, never counts), then maps the category to a severity
+  through a **fixed table** — the same "model picks a bucket, Go supplies the number" pattern as
+  estimation-agent's size→points ladder. The overall verdict (`BREAKING`/`SAFE`) is computed in Go from
+  the verified findings alone; if the model volunteers its own top-level verdict anyway, it's recorded
+  next to Go's and ignored. Wired into the orchestrator's new `breaking` route, with a keyword fallback
+  for breaking-change / breaking-api / api-compatibility / backward-compatibility requests. Prometheus
+  now scrapes its metrics on `:2141`.
 - **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
   inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
   lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
