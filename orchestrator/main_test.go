@@ -72,6 +72,8 @@ func TestKeywordFallback(t *testing.T) {
 		"scaffold a new service skeleton":                       "scaffold",
 		"write unit tests for this function":                    "testgen",
 		"find the flaky tests in our ci history":                "flaky",
+		"page the on-call team about this incident":             "triage",
+		"what's the root cause of this pagerduty alert":         "triage",
 		"how many story points is this":                         "estimate",
 		"write a spec for the checkout flow":                    "spec",
 		"run a sql query on the sales database":                 "sql",
