@@ -65,6 +65,7 @@ func TestMatchRoute(t *testing.T) {
 func TestKeywordFallback(t *testing.T) {
 	cases := map[string]string{
 		"please review this git diff":                           "review",
+		"is this an api break":                                  "breaking",
 		"summarize this long thread":                            "summarize",
 		"compare https://a.com and https://b.com":               "research",
 		"remind me in 10 minutes to deploy":                     "schedule",
