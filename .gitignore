@@ -16,6 +16,7 @@ bin/
 /*/*-agent
 orchestrator/orchestrator
 localtest/*/claude-openai-shim
+agents/sdlc/breaking-change-agent/breaking-change-agent
 
 # sql-agent's seeded SQLite file, created at runtime
 sql-agent/*.db

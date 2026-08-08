@@ -53,6 +53,9 @@ var registry = []specialist{
 	{"review", "code-review-agent", "http://localhost:8003", "review", []string{"title", "diff"},
 		"review a code diff / patch / pull request and comment on it",
 		[]string{"diff", "patch", "pull request", "code review", "changeset"}},
+	{"breaking", "breaking-change-agent", "http://localhost:8019", "breaking", []string{"diff"},
+		"detect API/contract breaking changes in a diff before merge — removed exports, changed signatures, removed fields/routes/paths",
+		[]string{"breaking change", "breaking changes", "api break", "backwards compatible", "backward compatible", "contract break", "will this break"}},
 	{"redact", "pii-redaction-agent", "http://localhost:8004", "redact", []string{"text"},
 		"detect and redact PII (names, emails, SSNs, cards) from a block of text",
 		[]string{"redact", "pii", "ssn", "credit card", "personally identifiable"}},
@@ -110,6 +113,7 @@ func main() {
 	for _, s := range registry {
 		app.AddHTTPService(s.Service, envOr(envKey(s.Service), s.DefaultURL),
 			&service.CircuitBreakerConfig{Threshold: 4, Interval: 2 * time.Second},
+			&service.RetryConfig{MaxRetries: 3},
 			&service.RateLimiterConfig{Requests: 20, Window: time.Second, Burst: 25},
 		)
 	}
