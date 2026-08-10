@@ -12,8 +12,8 @@ bin/
 .idea/
 .vscode/
 
-# compiled binaries (go build . emits one named after the module directory)
-/*/*-agent
+# compiled binaries (go build . emits one named after the module directory), wherever it's nested
+**/*-agent/*-agent
 orchestrator/orchestrator
 localtest/*/claude-openai-shim
 
