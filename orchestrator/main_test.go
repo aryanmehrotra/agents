@@ -74,6 +74,7 @@ func TestKeywordFallback(t *testing.T) {
 		"find the flaky tests in our ci history":                "flaky",
 		"check this openapi diff for breaking changes":          "breakingchange",
 		"triage this incident and find the root cause":          "triage",
+		"draft the changelog for the merged prs this week":      "release-notes",
 		"how many story points is this":                         "estimate",
 		"write a spec for the checkout flow":                    "spec",
 		"run a sql query on the sales database":                 "sql",

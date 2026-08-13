@@ -52,6 +52,8 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 **Review & release**
 - [x] **breaking-change-agent** — detect API/contract breaks in a diff before merge ✅ *shipped*
 - [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
+- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [x] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range ✅ *shipped*
 - [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
 
 **Operate**
@@ -113,6 +115,23 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
   either way, regardless of whether the model itself resisted the injection. Wired into the
   orchestrator's new `triage` route, with a keyword fallback for incident/on-call/root-cause/alert-fired/
   stack-trace/runbook/postmortem requests.
+- **2026-08-12** — added **release-notes-agent**: the release stage of the SDLC suite — it drafts a
+  Markdown changelog from a list of merged PRs (or a pasted list of PR titles). Release-notes drafting
+  is one of the narrow, easy-to-check workflows teams are starting agent adoption with in 2026 —
+  alongside task breakdown, test generation and incident summaries — because both the input (a PR
+  list) and the output (a changelog) are cheap for a human to verify ([HackerNoon, "How AI Agents Are
+  Reshaping Software Delivery in
+  2026"](https://hackernoon.com/how-ai-agents-are-reshaping-software-delivery-in-2026)). The model is
+  good at the judgment call (feature vs. fix vs. breaking change) but not at keeping a changelog's
+  *shape*, so it only proposes a category and a cleaned-up one-line entry per PR; Go disposes — every
+  category is checked against a fixed, closed 7-way set (an unrecognized or missing category always
+  falls back to a deterministic label/title keyword classifier, never passed through), lines are
+  trimmed and length-capped, duplicate entries within a category are dropped, and the Markdown is
+  assembled deterministically in a fixed section order sorted by PR number. If the model is
+  unavailable entirely, every PR still gets categorized by the same keyword fallback, so a model
+  outage degrades the changelog instead of failing the request. Wired into the orchestrator's new
+  `release-notes` route, with a keyword fallback for changelog / release-notes / "what's new" /
+  merged-PR requests.
 - **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
   inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
   lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
