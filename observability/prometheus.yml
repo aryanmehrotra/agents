@@ -29,3 +29,4 @@ scrape_configs:
           - "host.docker.internal:2142"  # incident-triage-agent
           - "host.docker.internal:2143"  # release-notes-agent
           - "host.docker.internal:2144"  # dependency-agent
+          - "host.docker.internal:2145"  # org-memory
