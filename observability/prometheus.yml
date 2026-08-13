@@ -25,3 +25,7 @@ scrape_configs:
           - "host.docker.internal:2138"  # migration-agent
           - "host.docker.internal:2139"  # test-gen-agent
           - "host.docker.internal:2140"  # flaky-test-agent
+          - "host.docker.internal:2141"  # breaking-change-agent
+          - "host.docker.internal:2142"  # incident-triage-agent
+          - "host.docker.internal:2143"  # release-notes-agent
+          - "host.docker.internal:2144"  # dependency-agent
