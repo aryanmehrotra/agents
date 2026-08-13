@@ -26,6 +26,7 @@ auth, rate-limiting and resilience for free.
 - **migration-agent** — applies a mechanical codemod across a set of files **in any language**; the model rewrites and Go disposes — a deterministic per-file diff, and for the types it can parse (Go/JSON/YAML) the rewrite is re-verified so a change that no longer parses is rejected and the original kept, all in-process (no repo touched)
 - **test-gen-agent** — writes unit tests for a piece of code and, for Go, **compiles and runs them** in an isolated offline temp module — the test is only "kept" if it built and passed, so a green result is one that was actually executed, not just generated (other languages are generated but marked not-executed)
 - **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
+- **breaking-change-agent** — detects API/contract breaking changes between two OpenAPI-shaped specs before merge; detection is **deterministic Go** (structural diff over paths, parameters, request/response schemas — removed endpoints, newly-required fields, changed types, shrunk enums), decided before the model ever runs, so text inside the spec itself can't talk it out of a real finding — the model only writes an advisory migration note per already-detected break
 
 ## Planned agents — the software development lifecycle
 
@@ -48,7 +49,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [x] **flaky-test-agent** — mine CI history for flaky tests and quarantine/report them ✅ *shipped*
 
 **Review & release**
-- [ ] **breaking-change-agent** — detect API/contract breaks in a diff before merge
+- [x] **breaking-change-agent** — detect API/contract breaks in a diff before merge ✅ *shipped*
 - [ ] **release-notes-agent** — draft a changelog / release notes from the merged PRs in a range
 - [ ] **dependency-agent** — propose and validate dependency bumps (surfaced only if build + tests stay green) — the pattern behind this repo's own daily dependency PRs
 
@@ -67,6 +68,26 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-08-13** — added **breaking-change-agent**: the review-and-release stage of the SDLC suite — it
+  compares two versions of an OpenAPI-shaped spec (JSON or YAML) and reports exactly what would break a
+  caller before the change ever merges: a removed endpoint, a request field that just became required, a
+  field that vanished from a response, a narrowed type, a shrunk enum. Like flaky-test-agent, it inverts
+  the repo's usual pattern — the **detection is the deterministic part and lives entirely in Go**: whether
+  something is breaking is decided by structurally walking both spec trees (paths, parameters, request vs.
+  response schema semantics) before the model is ever called, so a prompt-injection attempt hidden in the
+  spec's own free text (a `description` or `summary` field) has no path back into a finding's verdict —
+  the classifier never reads those fields at all (verified in `main_test.go` and demonstrated in the
+  README). The model's role is narrow and advisory: given the list of already-detected breaking changes,
+  it writes a one-line migration note per change and an overall summary; a model outage returns the
+  findings and verdict unaffected, just without notes. AI-agent-based breaking-change detection wired into
+  CI — diffing an API spec and gating a PR on what actually broke — is an active pattern going into
+  production now ([Augment Code, "API Contract Testing with Agent-Authored
+  Specs"](https://www.augmentcode.com/guides/api-contract-testing-agent-authored-specs); structured,
+  CI-actionable breaking-change reports are the concrete artifact teams are gating merges on, alongside
+  tools like [apicontract.dev](https://apicontract.dev/) and OpenAPI-diffing services). Wired into the
+  orchestrator's new `breakingchange` route, with a keyword fallback for breaking change / API diff /
+  contract diff / OpenAPI diff / backward-compatible requests (placed ahead of `review` in the fallback
+  order, since `review`'s bare `"diff"` keyword would otherwise shadow it).
 - **2026-07-28** — added **flaky-test-agent**: mines CI run history for flaky tests. It deliberately
   inverts the usual "model proposes, Go disposes" — here the *detection* is the deterministic part and
   lives entirely in Go: a test is flaky **iff**, in the runs you provide, it has at least one pass AND
