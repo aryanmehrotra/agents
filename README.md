@@ -34,6 +34,7 @@ flowchart TB
     ORCH --> GT
     ORCH --> GB
     ORCH --> GO
+    ORCH --> GK
 
     subgraph GA["🔎 Answer and retrieve"]
         direction TB
@@ -67,6 +68,11 @@ flowchart TB
         DP["📦 dependency-agent"]
     end
 
+    subgraph GK["🧠 Remember"]
+        direction TB
+        OM["🧠 org-memory"]
+    end
+
     subgraph GO["🗓️ Automate"]
         direction TB
         SC["🗓️ scheduler-agent"]
@@ -76,6 +82,7 @@ flowchart TB
     GT --> LLM
     GB --> LLM
     GO --> LLM
+    GK --> LLM
     LLM --> Provider{"provider"}
     Provider --> Groq["Groq · default"]
     Provider --> Ollama["Ollama · local"]
@@ -85,7 +92,7 @@ flowchart TB
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,RN,DP,WF,ORCH agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,RN,DP,OM,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -104,7 +111,7 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 
 ## 🤖 The agents
 
-23 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
+24 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
 proposes, Go disposes** — a deterministic guardrail validates every answer.
 
 🧭 **[`orchestrator`](orchestrator)** — the front door. Routes any query to the right agent, **LLM-first**
@@ -136,6 +143,9 @@ over a [capability registry](orchestrator), with a `/capabilities` discovery end
 - **[`incident-triage-agent`](agents/sdlc/incident-triage-agent)** — alert → root cause + owner, ownership resolved in Go, never the model
 - **[`release-notes-agent`](agents/sdlc/release-notes-agent)** — merged PRs → changelog, **closed-set category guardrail in Go**
 - **[`dependency-agent`](agents/sdlc/dependency-agent)** — validates dependency bumps; **semver + major-bump policy computed in Go**
+
+**🧠 Remember**
+- **[`org-memory`](agents/knowledge/org-memory)** — recalls the *why* behind past decisions before you make the next one; ranking, precision floor and feedback all **decided in Go**
 
 **🗓️ Automate & compose**
 - **[`scheduler-agent`](agents/automation/scheduler-agent)** — natural language → a task that actually fires later
@@ -258,6 +268,7 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | | | | 8020 | incident-triage-agent |
 | | | | 8021 | release-notes-agent |
 | | | | 8022 | dependency-agent |
+| | | | 8023 | org-memory |
 | | | | 8088 | claude-openai-shim |
 
 Each agent is **its own directory and Go module**, grouped by capability:
