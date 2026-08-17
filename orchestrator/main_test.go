@@ -74,6 +74,8 @@ func TestKeywordFallback(t *testing.T) {
 		"find the flaky tests in our ci history":                "flaky",
 		"check this openapi diff for breaking changes":          "breakingchange",
 		"triage this incident and find the root cause":          "triage",
+		"summarize the incident channel into a timeline":        "oncall-summary",
+		"write an incident recap with the action items":         "oncall-summary",
 		"draft the changelog for the merged prs this week":      "release-notes",
 		"check for outdated dependencies in our go.mod":         "deps",
 		"how many story points is this":                         "estimate",
