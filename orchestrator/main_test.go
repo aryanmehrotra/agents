@@ -74,6 +74,8 @@ func TestKeywordFallback(t *testing.T) {
 		"find the flaky tests in our ci history":                "flaky",
 		"check this openapi diff for breaking changes":          "breakingchange",
 		"triage this incident and find the root cause":          "triage",
+		"summarize the incident channel into a timeline":        "oncall-summary",
+		"give me the on-call summary and action items":          "oncall-summary",
 		"draft the changelog for the merged prs this week":      "release-notes",
 		"check for outdated dependencies in our go.mod":         "deps",
 		"how many story points is this":                         "estimate",
@@ -152,6 +154,22 @@ func TestCapabilities(t *testing.T) {
 
 	if len(m["agents"].([]map[string]any)) != len(registry) {
 		t.Error("capabilities should list every registry entry")
+	}
+}
+
+// TestKeywordFallbackOncallSummaryNotShadowedByTriage proves oncall-summary's more specific keywords
+// win over triage's bare "incident"/"on-call"/"oncall" — the same ordering guard breaking-change-agent
+// needed against review's bare "diff" keyword. oncall-summary must be registered ahead of triage.
+func TestKeywordFallbackOncallSummaryNotShadowedByTriage(t *testing.T) {
+	cases := []string{
+		"distil the incident channel into a timeline for me",
+		"can you give me the on-call summary for last night",
+	}
+
+	for _, q := range cases {
+		if got := keywordFallback(q).Route; got != "oncall-summary" {
+			t.Errorf("keywordFallback(%q) = %q, want %q (triage's bare keywords must not shadow it)", q, got, "oncall-summary")
+		}
 	}
 }
 
