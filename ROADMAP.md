@@ -59,7 +59,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -71,6 +71,26 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [ ] a gateway / dashboard UI
 
 ## Changelog
+
+- **2026-08-21** — added **oncall-summary-agent**: the last "Planned agent" in the SDLC suite — it
+  distils a raw incident channel transcript into a chronological timeline and a list of action items,
+  closing out the "Operate" stage alongside incident-triage-agent (which triages the alert while the
+  incident is live; this one writes it up afterward). AI "scribe" agents that sit in an incident channel,
+  auto-build the timeline, and turn decisions into owned follow-up tasks are one of the concrete shifts
+  incident-management vendors are shipping for 2026 ([incident.io, "Incident management trends 2026: the
+  shift to AI, chat-native, and secure
+  workflows"](https://incident.io/blog/incident-management-tools-trends-2026); [Harness's AI SRE Scribe
+  Agent docs](https://developer.harness.io/docs/ai-sre/ai-agent/) describe the same monitor-the-channel,
+  build-the-timeline, create-owned-tasks pattern). Like incident-triage-agent, the channel transcript is
+  treated as attacker-influenced text — the model only proposes a timeline and action items; Go disposes:
+  every `quote` is verified verbatim against the transcript, and every `author`/`owner` is checked
+  against a roster built deterministically from who actually posted (or an explicit caller override) —
+  never the model's own account. A hijacked message trying to reassign blame or an action item (e.g.
+  wiring money) to someone who never posted is refused and falls back to `unassigned`, and kept timeline
+  entries are re-sorted by where their quote occurs in the transcript so the model can't reorder history.
+  Wired into the orchestrator's new `oncall-summary` route (placed ahead of `triage` in the fallback
+  order, with its own specific keywords like "incident channel", "war room" and "postmortem" so a flaky
+  classifier can't misroute a write-up request to the live-triage agent).
 
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
