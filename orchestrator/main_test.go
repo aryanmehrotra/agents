@@ -81,10 +81,15 @@ func TestKeywordFallback(t *testing.T) {
 		"run a sql query on the sales database":                 "sql",
 		"how do I reset my vpn password":                        "kb",
 		"the app crashes with a panic":                          "support",
+		"distil this incident channel into a timeline":          "oncall-summary",
+		"give me an oncall summary of the incident channel":     "oncall-summary",
 		// No keyword → the default-route agent.
 		"what is our total shipped revenue": "data",
 		// Regression: an effort word embedded in a data question must NOT hijack estimate.
 		"what is our estimated revenue this quarter": "data",
+		// Regression: "summary" inside "oncall summary" must not be caught by summarize's bare
+		// "summary" keyword — oncall-summary is registered ahead of summarize for exactly this.
+		"can you write up an oncall summary for the retro": "oncall-summary",
 	}
 
 	for query, want := range cases {
