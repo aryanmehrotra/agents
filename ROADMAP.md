@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils an incident channel transcript into a chronological timeline and action items with owners; every timeline entry's quote must be verbatim-verified against a real transcript message, and its time/speaker are always copied from *that* message, never from the model's claim — and every action item's owner must be a real transcript participant (extracted from the input, never invented), falling back to `needs_manual_assignment` otherwise
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -72,6 +73,33 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-08-22** — added **oncall-summary-agent**: the last stop on the "Operate" stage, right after
+  incident-triage-agent — it distils an incident channel transcript into a chronological timeline and a
+  list of action items with owners. Automated postmortem generation is a fast-consolidating category
+  right now, and **chat-transcript postmortems** — summarizing what humans actually said in the incident
+  channel, the exact shape this agent targets — are one of three distinct architectures vendors
+  (Rootly, incident.io, FireHydrant) are shipping today, alongside observability-stitched and
+  agentic-investigation postmortems ([Rootly, "AI-Generated Postmortems: Turn Outages into
+  Insights"](https://rootly.com/sre/ai-generated-postmortems-turn-outages-into-insights-0624b);
+  [incident.io, "5 best AI-powered incident management platforms
+  2026"](https://incident.io/blog/5-best-ai-powered-incident-management-platforms-2026)). The trap is
+  sharper than plain triage: this agent's whole job is to hand a transcript's contents back as if
+  they're now facts — "this happened at this time," "this person owes this task" — so a prompt injection
+  hidden in one channel message could otherwise forge an incident record or route a task to someone who
+  was never in the room. The model only *proposes* a timeline and action items; Go *disposes*: every
+  timeline entry's `quote` must appear **verbatim** in a real transcript message, and once grounded, its
+  `time` and `speaker` are always copied from *that message's own metadata* — never from whatever the
+  model itself claims — with kept entries re-sorted by the matched message's transcript position, so
+  chronology is the transcript's own order, never the model's. Every action item's `owner` must be a
+  real **participant** — someone who actually has a message in the transcript, extracted deterministically
+  from the input itself, never a static list and never the model's guess — an unmatched owner falls back
+  to `needs_manual_assignment` with the model's guess kept only as an advisory note. Verified live against
+  the local shim, including a hostile channel message that tries to forge a 03:00 timeline entry
+  attributed to "ceo" and assign a wire-transfer action item to "finance-bot" — refused deterministically
+  either way, regardless of whether the model itself resisted the injection (proven in `main_test.go`).
+  Wired into the orchestrator's new `oncall-summary` route, registered *ahead of* `summarize` in the
+  capability registry specifically so a query like "give me an oncall summary of the incident channel"
+  isn't caught by summarize's own bare `"summary"` keyword fallback first.
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
   re-arguing what it already settled. Retrieval is dense cosine plus scope match with a

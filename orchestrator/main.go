@@ -59,6 +59,11 @@ var registry = []specialist{
 	{"redact", "pii-redaction-agent", "http://localhost:8004", "redact", []string{"text"},
 		"detect and redact PII (names, emails, SSNs, cards) from a block of text",
 		[]string{"redact", "pii", "ssn", "credit card", "personally identifiable"}},
+	// Placed ahead of `summarize`: a query like "give me an oncall summary of the incident channel"
+	// contains the bare word "summary", which summarize's own keyword would otherwise catch first.
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "summary", []string{"text"},
+		"distil an incident channel / chat transcript into a chronological timeline and action items with owners, once the incident's been triaged",
+		[]string{"oncall summary", "on-call summary", "incident channel", "incident timeline", "incident recap", "channel transcript", "chat transcript", "slack thread", "postmortem timeline", "distill the incident", "distil the incident", "action items from the incident", "incident chat log"}},
 	{"summarize", "summarizer-agent", "http://localhost:8005", "summarize", []string{"text"},
 		"summarize a long document, email thread or chat transcript",
 		[]string{"summarize", "summary", "tl;dr", "tldr", "thread", "long document"}},
