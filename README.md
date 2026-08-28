@@ -64,6 +64,7 @@ flowchart TB
         FK["🎲 flaky-test-agent"]
         BC["🧯 breaking-change-agent"]
         IT["🚨 incident-triage-agent"]
+        OS["🗒️ oncall-summary-agent"]
         RN["📰 release-notes-agent"]
         DP["📦 dependency-agent"]
     end
@@ -92,7 +93,7 @@ flowchart TB
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,RN,DP,OM,WF,ORCH agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,OS,RN,DP,OM,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -141,6 +142,7 @@ over a [capability registry](orchestrator), with a `/capabilities` discovery end
 - **[`flaky-test-agent`](agents/sdlc/flaky-test-agent)** — mines CI history for flaky tests, **detected in Go**
 - **[`breaking-change-agent`](agents/sdlc/breaking-change-agent)** — API/OpenAPI spec diff, breaking changes **detected in Go**
 - **[`incident-triage-agent`](agents/sdlc/incident-triage-agent)** — alert → root cause + owner, ownership resolved in Go, never the model
+- **[`oncall-summary-agent`](agents/sdlc/oncall-summary-agent)** — incident channel → timeline + action items, owners resolved to real participants **in Go**
 - **[`release-notes-agent`](agents/sdlc/release-notes-agent)** — merged PRs → changelog, **closed-set category guardrail in Go**
 - **[`dependency-agent`](agents/sdlc/dependency-agent)** — validates dependency bumps; **semver + major-bump policy computed in Go**
 
@@ -269,6 +271,7 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | | | | 8021 | release-notes-agent |
 | | | | 8022 | dependency-agent |
 | | | | 8023 | org-memory |
+| | | | 8024 | oncall-summary-agent |
 | | | | 8088 | claude-openai-shim |
 
 Each agent is **its own directory and Go module**, grouped by capability:
@@ -279,7 +282,7 @@ agents/
 ├── retrieval/         data · sql · kb · research · local-rag · support · memory
 ├── text/              summarizer · pii-redaction · extraction
 ├── sdlc/              code-review · spec · estimation · scaffold · migration · test-gen · flaky-test ·
-│                      breaking-change · incident-triage · release-notes · dependency
+│                      breaking-change · incident-triage · oncall-summary · release-notes · dependency
 └── automation/        scheduler · workflow
 observability/         docker-compose: Jaeger + Prometheus + Grafana
 localtest/             the keyless claude-openai-shim
