@@ -59,6 +59,11 @@ var registry = []specialist{
 	{"redact", "pii-redaction-agent", "http://localhost:8004", "redact", []string{"text"},
 		"detect and redact PII (names, emails, SSNs, cards) from a block of text",
 		[]string{"redact", "pii", "ssn", "credit card", "personally identifiable"}},
+	// Placed ahead of "summarize" in the fallback order, since summarize's bare "summary" keyword would
+	// otherwise shadow it (the same reason "breakingchange" is placed ahead of "review" below).
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "oncall-summary", []string{"transcript"},
+		"distil an incident channel transcript into a timeline and guardrailed action items with verified owners",
+		[]string{"incident channel", "channel transcript", "chat transcript", "oncall summary", "on-call summary", "postmortem timeline", "post-incident summary", "distil the channel", "recap the incident", "action items and owners", "incident recap", "incident timeline"}},
 	{"summarize", "summarizer-agent", "http://localhost:8005", "summarize", []string{"text"},
 		"summarize a long document, email thread or chat transcript",
 		[]string{"summarize", "summary", "tl;dr", "tldr", "thread", "long document"}},

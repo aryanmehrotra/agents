@@ -44,6 +44,20 @@ func TestRouterPromptDynamic(t *testing.T) {
 	}
 }
 
+// TestOncallSummaryKeywordWinsOverTriage proves the ordering guardrail: a query about summarizing an
+// incident channel must route to oncall-summary-agent, not incident-triage-agent, even though both
+// registry entries share generic incident/on-call vocabulary — the fallback must be reliable enough
+// that a down/flaky classifier can't misroute this agent's domain to a different, possibly-down agent.
+func TestOncallSummaryKeywordWinsOverTriage(t *testing.T) {
+	if got := keywordFallback("give me an oncall summary of this incident channel").Route; got != "oncall-summary" {
+		t.Errorf("keywordFallback(oncall summary query) = %q, want %q", got, "oncall-summary")
+	}
+
+	if got := keywordFallback("there's an alert firing, what's the likely root cause").Route; got != "triage" {
+		t.Errorf("keywordFallback(root cause query) = %q, want %q", got, "triage")
+	}
+}
+
 // TestMatchRoute maps a model reply to a registry entry (exact word, or contained), and rejects an
 // unknown answer so routing can fall back.
 func TestMatchRoute(t *testing.T) {
@@ -64,23 +78,25 @@ func TestMatchRoute(t *testing.T) {
 // entirely by the registry's per-agent keywords, with the default-route agent as the last resort.
 func TestKeywordFallback(t *testing.T) {
 	cases := map[string]string{
-		"please review this git diff":                           "review",
-		"summarize this long thread":                            "summarize",
-		"compare https://a.com and https://b.com":               "research",
-		"remind me in 10 minutes to deploy":                     "schedule",
-		"apply a codemod to rename getUser across the codebase": "migrate",
-		"scaffold a new service skeleton":                       "scaffold",
-		"write unit tests for this function":                    "testgen",
-		"find the flaky tests in our ci history":                "flaky",
-		"check this openapi diff for breaking changes":          "breakingchange",
-		"triage this incident and find the root cause":          "triage",
-		"draft the changelog for the merged prs this week":      "release-notes",
-		"check for outdated dependencies in our go.mod":         "deps",
-		"how many story points is this":                         "estimate",
-		"write a spec for the checkout flow":                    "spec",
-		"run a sql query on the sales database":                 "sql",
-		"how do I reset my vpn password":                        "kb",
-		"the app crashes with a panic":                          "support",
+		"please review this git diff":                             "review",
+		"summarize this long thread":                              "summarize",
+		"compare https://a.com and https://b.com":                 "research",
+		"remind me in 10 minutes to deploy":                       "schedule",
+		"apply a codemod to rename getUser across the codebase":   "migrate",
+		"scaffold a new service skeleton":                         "scaffold",
+		"write unit tests for this function":                      "testgen",
+		"find the flaky tests in our ci history":                  "flaky",
+		"check this openapi diff for breaking changes":            "breakingchange",
+		"triage this incident and find the root cause":            "triage",
+		"distil this incident channel transcript into a timeline": "oncall-summary",
+		"give me an oncall summary with action items":             "oncall-summary",
+		"draft the changelog for the merged prs this week":        "release-notes",
+		"check for outdated dependencies in our go.mod":           "deps",
+		"how many story points is this":                           "estimate",
+		"write a spec for the checkout flow":                      "spec",
+		"run a sql query on the sales database":                   "sql",
+		"how do I reset my vpn password":                          "kb",
+		"the app crashes with a panic":                            "support",
 		// No keyword → the default-route agent.
 		"what is our total shipped revenue": "data",
 		// Regression: an effort word embedded in a data question must NOT hijack estimate.
