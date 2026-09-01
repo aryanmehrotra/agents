@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils an incident channel (a pasted transcript or structured messages) into a timeline and a deduplicated action-item list; a timeline entry's timestamp/author are always taken from the real message its quote was found in, never the model's claim, an action item's owner must be one of the channel's actual participants (else `unassigned`), and any URL surfaced anywhere in the output is checked by the same SSRF-style guardrail `research-agent`/`incident-triage-agent` use before it's ever returned — an item referencing an unsafe URL is dropped whole
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -71,6 +72,29 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [ ] a gateway / dashboard UI
 
 ## Changelog
+
+- **2026-09-01** — added **oncall-summary-agent**: the last stop of the "Operate" stage of the SDLC
+  suite — it distils an incident channel (a pasted chat transcript, or a structured list of messages)
+  into a timeline of events and a deduplicated action-item list with owners. As incident response moves
+  into chat-ops (Slack/Teams war rooms), the channel itself becomes the primary incident record, and
+  AI-generated summaries of incident histories and conversation threads — turning a war-room channel into
+  a timeline plus a drafted stakeholder update — are already a shipped enterprise pattern ([Atomicwork,
+  "Top 25+ AI agent use cases for enterprises in
+  2026"](https://www.atomicwork.com/blog/ai-agent-use-cases)). An incident channel is attacker-influenced,
+  self-service text — anyone who can post in it can try to steer the summary — so the model only
+  *proposes* a timeline and action items; Go *disposes*: a timeline entry's quote must appear verbatim in
+  a real message, and when it does, the entry's timestamp and author are taken from **that real message**,
+  never the model's own claim; an action item's owner must be one of the channel's actual participants
+  (derived from the messages themselves) or it falls back to `unassigned`, with the model's guess kept
+  only as an unverified `suggested_owner`; and any http(s) URL surfaced anywhere in the output — an action
+  item, a timeline note, a decision, an open question — is checked by the same SSRF-style guardrail
+  `research-agent` and `incident-triage-agent` use, with an item referencing an unsafe URL dropped whole
+  rather than partially redacted. Verified live against the local shim, including a hostile message that
+  tries to reassign an action item to an `external-attacker` identity and smuggle out a cloud-metadata URL
+  disguised as a task — refused deterministically either way. Wired into the orchestrator's new
+  `oncall-summary` route (placed ahead of `summarize` in the keyword fallback order, since `summarize`'s
+  bare keyword would otherwise shadow it), with a keyword fallback for incident channel / incident
+  timeline / incident recap / war room / chat transcript / postmortem timeline requests.
 
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
