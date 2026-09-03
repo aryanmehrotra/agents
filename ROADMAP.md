@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils an incident channel / war-room transcript into a timeline and a list of action items; every timeline entry must carry a quote verified verbatim against the transcript (an unverifiable claim is dropped, not kept), and every action item's owner must be one of the channel's real participants — extracted deterministically in Go from the message authors, never the model's guess, with an unrecognized name rejected back to "unassigned"; any URL attached to an action item passes the same SSRF guardrail research-agent and incident-triage-agent use before it's ever returned
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -71,6 +72,29 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [ ] a gateway / dashboard UI
 
 ## Changelog
+
+- **2026-09-03** — added **oncall-summary-agent**: the last hole in the "Operate" stage of the SDLC
+  suite. `incident-triage-agent` gets a team from alert to root cause; this agent picks up from there —
+  it distils the war-room chatter that follows into a timeline of events and a list of action items with
+  owners, the two things a postmortem actually needs. Distilling an incident channel into a timeline and
+  action items is one of the concrete, narrowly-scoped incident-response workflows enterprises are
+  handing to agents now, alongside triage and root-cause summarization ([Rootly, "Top AI Observability
+  Trends Shaping 2026 Incident
+  Ops"](https://rootly.com/sre/top-ai-observability-trends-shaping-2026-incident-ops-0e928); [incident.io,
+  "Incident management trends 2026"](https://incident.io/blog/incident-management-tools-trends-2026)). A
+  war-room transcript is attacker-influenced text like any other incident artifact this repo handles, so
+  the model only proposes a timeline and action items; Go disposes on both fronts — every timeline entry
+  must carry a quote that verifies verbatim against the transcript (an entry the model can't back up is
+  dropped outright, not downgraded), and every action item's owner must be one of the channel's actual
+  participants, extracted deterministically in Go from the message authors — an owner the model names who
+  never posted in the channel is rejected back to `unassigned`. Any URL attached to an action item passes
+  the same SSRF-style guardrail `research-agent` and `incident-triage-agent` use before it's ever
+  returned. Verified live against the local shim, including a hostile chat line that attempts to reassign
+  a follow-up to `external-attacker` and smuggle out a cloud-metadata URL as a tracking link — refused
+  deterministically either way. Wired into the orchestrator's new `oncall-summary` route, with a keyword
+  fallback for incident channel/timeline/war-room/action-items/incident-recap requests, checked ahead of
+  `triage`'s more generic incident/postmortem keywords so a flaky classifier can't misroute a channel
+  summary to the root-cause agent.
 
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
