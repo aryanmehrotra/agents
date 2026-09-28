@@ -76,6 +76,8 @@ func TestKeywordFallback(t *testing.T) {
 		"triage this incident and find the root cause":          "triage",
 		"draft the changelog for the merged prs this week":      "release-notes",
 		"check for outdated dependencies in our go.mod":         "deps",
+		"write the postmortem for this incident channel":        "oncall-summary",
+		"give me an oncall summary of the war room":             "oncall-summary",
 		"how many story points is this":                         "estimate",
 		"write a spec for the checkout flow":                    "spec",
 		"run a sql query on the sales database":                 "sql",
