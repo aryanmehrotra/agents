@@ -59,6 +59,12 @@ var registry = []specialist{
 	{"redact", "pii-redaction-agent", "http://localhost:8004", "redact", []string{"text"},
 		"detect and redact PII (names, emails, SSNs, cards) from a block of text",
 		[]string{"redact", "pii", "ssn", "credit card", "personally identifiable"}},
+	// Placed ahead of `summarize` (bare "summary") and `triage` (bare "incident"/"oncall"/"postmortem")
+	// in the fallback order — its own keywords are more specific compounds that would otherwise be
+	// shadowed by those two agents' broader single-word keywords.
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "oncall-summary", []string{"text"},
+		"distil an incident channel transcript into a timeline and action items, grounded and owner-verified",
+		[]string{"oncall summary", "on-call summary", "incident summary", "incident channel", "incident timeline", "postmortem", "war room", "action items from the incident", "channel transcript"}},
 	{"summarize", "summarizer-agent", "http://localhost:8005", "summarize", []string{"text"},
 		"summarize a long document, email thread or chat transcript",
 		[]string{"summarize", "summary", "tl;dr", "tldr", "thread", "long document"}},
@@ -79,7 +85,7 @@ var registry = []specialist{
 		[]string{"flaky", "flaky test", "flaky tests", "quarantine", "intermittent test", "ci history", "flaky ci"}},
 	{"triage", "incident-triage-agent", "http://localhost:8020", "triage", []string{"alert"},
 		"triage a production alert / stack trace / incident to a likely root cause and owning team",
-		[]string{"incident", "on-call", "oncall", "root cause", "alert fired", "paging", "stack trace", "runbook", "postmortem"}},
+		[]string{"incident", "on-call", "oncall", "root cause", "alert fired", "paging", "stack trace", "runbook"}},
 	{"release-notes", "release-notes-agent", "http://localhost:8021", "release-notes", []string{"text"},
 		"draft a changelog / release notes from a list of merged pull requests",
 		[]string{"release notes", "changelog", "change log", "draft the changelog", "merged prs", "merged pull requests", "what's new", "whats new"}},
