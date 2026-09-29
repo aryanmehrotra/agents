@@ -47,6 +47,12 @@ const defaultRoute = "data"
 // entries first; the default-route agent needs no keywords). Add an agent here and it is registered,
 // routable, and discoverable — no other code changes.
 var registry = []specialist{
+	// Placed first: its keywords are compound incident-channel phrases that must win over broader
+	// substrings used by other agents' keywords ("summary" for summarize, bare "incident" for triage) —
+	// order is what decides the keyword-fallback winner on a substring clash, not specificity.
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "summarize", []string{"text"},
+		"distil an incident channel transcript into a timeline and a list of owned action items",
+		[]string{"incident channel", "incident timeline", "incident summary", "oncall summary", "on-call summary", "action items", "war room", "incident recap", "incident transcript"}},
 	{"research", "research-agent", "http://localhost:8008", "research", []string{"question"},
 		"a question that includes one or more http(s) links to fetch, read and answer with citations",
 		[]string{"http://", "https://"}},
