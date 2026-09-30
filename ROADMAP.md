@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils a pasted incident channel/war-room transcript into a timeline, narrative summary and action items; the timeline is parsed **deterministically in Go before the model ever runs** (the model never writes it), every action item's owner must be a real participant who actually posted (or was declared) or it falls back to unassigned, every action item's evidence quote is verified verbatim against the transcript or the item is dropped entirely, and any reference URL is SSRF-guarded before it's returned
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -72,6 +73,31 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-09-30** — added **oncall-summary-agent**: the last stop of the "Operate" stage, alongside
+  incident-triage-agent — it distils a pasted incident channel/war-room transcript into a timeline, a
+  narrative summary, and a set of action items. AI-drafted incident postmortems — summary, timeline,
+  contributing factors and action items pulled straight from the channel/call transcript instead of an
+  engineer reconstructing it from memory — are one of the concrete AIOps patterns going into production
+  now, with teams reporting the drafting step drops from ~90 minutes of manual writing to a short review
+  pass ([incident.io, "Best incident postmortem software: complete guide for
+  2026"](https://incident.io/blog/best-incident-postmortem-software-2026-guide); [Aurora SRE, "Automated
+  Post-Mortem Generation: 2026 Guide"](https://www.aurorasre.ai/blog/automated-post-mortem-generation)).
+  An incident channel is attacker-influenced text, so the model only proposes a summary and action
+  items; Go disposes on every front that matters if these get auto-filed downstream: the **timeline is
+  parsed deterministically in Go before the model ever runs** (parsed speaker/time/text per line — the
+  model never writes or reorders it), every action item's **owner must be a real participant** who
+  actually posted in the transcript (or was explicitly declared) or it falls back to `unassigned` with
+  the model's guess kept only as an unverified note, every action item's **evidence quote is verified
+  verbatim** against the transcript or the item is dropped entirely rather than returned as a
+  low-confidence guess, and any **reference URL is checked by the same SSRF-style guardrail**
+  research-agent and incident-triage-agent use. Verified live against the local shim, including a
+  hostile channel line that attempts to reassign an action item to `external-attacker` and smuggle out a
+  cloud-metadata URL as a "reference" — refused deterministically either way. Wired into the
+  orchestrator's new `oncall-summary` route, placed ahead of `summarize` in the keyword fallback order
+  (a bare "summarize" query would otherwise shadow its more specific "incident channel"/"channel
+  transcript" keywords), with a keyword fallback for incident channel/war room/chat transcript/incident
+  recap/incident timeline requests. This completes every agent on the SDLC roadmap's plan-and-design
+  through operate stages.
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
   re-arguing what it already settled. Retrieval is dense cosine plus scope match with a
