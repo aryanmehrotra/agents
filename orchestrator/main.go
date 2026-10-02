@@ -77,6 +77,16 @@ var registry = []specialist{
 	{"flaky", "flaky-test-agent", "http://localhost:8018", "flaky", []string{"text"},
 		"find flaky tests in CI run history — tests that both pass and fail across runs — and recommend quarantine",
 		[]string{"flaky", "flaky test", "flaky tests", "quarantine", "intermittent test", "ci history", "flaky ci"}},
+	// oncall-summary's keywords are deliberately more specific than triage's bare "incident"/"oncall"
+	// below, and this entry is placed BEFORE triage so the keyword fallback checks it first — a query
+	// like "give me a recap of this incident channel" must not be caught by triage's generic "incident"
+	// keyword just because it comes first in iteration order.
+	// Note: "summary"/"thread" are deliberately NOT keywords here even though they're on-topic — the
+	// summarizer-agent entry above already claims those as substrings ("summary", "thread"), and since
+	// it's checked first, a shared keyword would always be routed there instead.
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "oncall-summary", []string{"transcript"},
+		"distil an incident channel / chat transcript into a timeline of events and action items with owners",
+		[]string{"incident channel", "incident timeline", "incident recap", "war room", "chat transcript", "catch me up on the incident", "action items from the incident"}},
 	{"triage", "incident-triage-agent", "http://localhost:8020", "triage", []string{"alert"},
 		"triage a production alert / stack trace / incident to a likely root cause and owning team",
 		[]string{"incident", "on-call", "oncall", "root cause", "alert fired", "paging", "stack trace", "runbook", "postmortem"}},
