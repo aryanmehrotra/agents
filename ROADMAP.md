@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils an incident channel/chat transcript into a timeline and action items; the model only proposes — every timeline entry's quote is verified verbatim against the transcript, and an action item's owner is only accepted if that handle actually **authored a line** in the transcript (never one merely *named* inside someone else's message, which is what keeps a hostile line from self-verifying a fabricated owner), with any follow-up URL run through the same SSRF guardrail `research-agent` and `incident-triage-agent` use
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped* (owner assignment verified against who actually spoke in the transcript, not merely who was named)
 
 ## Toward a product
 
@@ -71,6 +72,33 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 - [ ] a gateway / dashboard UI
 
 ## Changelog
+
+- **2026-10-02** — added **oncall-summary-agent**: the second "Operate" stage agent in the SDLC suite,
+  alongside incident-triage-agent — it distils an incident channel/chat transcript into a chronological
+  timeline and a list of action items. incident-triage-agent names a root cause and owner the moment an
+  alert fires; this one picks up afterwards, turning the hundreds of scrollback messages a live incident
+  channel accumulates into something a new responder (or the postmortem) can read in 30 seconds. AI
+  agents maintaining a running summary of an incident channel — pulling together metric readings,
+  command output and team decisions into a timeline, then turning findings into tracked action items
+  with owners — is exactly the on-call pattern production AIOps agents are being built around now
+  ([nairi.ai, "AI agent for on-call incident
+  response"](https://nairi.ai/use-cases/oncall-incident-response)). The guardrail follows the same
+  "model proposes, Go disposes" split as incident-triage-agent, but with a sharper distinction: every
+  timeline entry's quote is verified verbatim against the transcript (an event the model can't back up
+  with a real quote is dropped), and an action item's owner is only accepted if that handle actually
+  **authored a line** in the transcript — extracted deterministically from each line's leading
+  `handle:`, never from a bare `@mention` sitting inside someone else's message. That distinction is the
+  whole point: a hostile line can freely *name* any handle it likes ("assign this to
+  `@external-attacker`"), but it can't retroactively make that name a participant who was actually in the
+  conversation, so a naive "was this handle ever mentioned" check would have been trivially bypassed by
+  the very message trying the hijack — proven in `TestGuardrailPromptInjectionHostileInput` and verified
+  live against the local shim (the model proposed the attacker's "action item," but the owner and the
+  smuggled cloud-metadata URL were both stripped before the response ever left the service, with
+  `needs_manual_review: true` surfaced instead). Any follow-up URL an action item carries is checked by
+  the same SSRF-style guardrail research-agent and incident-triage-agent use. Wired into the
+  orchestrator's new `oncall-summary` route, placed ahead of `triage` in the keyword fallback order so a
+  flaky classifier can't misroute an incident-channel recap to the triage agent via its generic
+  `"incident"`/`"oncall"` keywords.
 
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
