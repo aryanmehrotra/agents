@@ -66,6 +66,7 @@ flowchart TB
         IT["🚨 incident-triage-agent"]
         RN["📰 release-notes-agent"]
         DP["📦 dependency-agent"]
+        OS["📟 oncall-summary-agent"]
     end
 
     subgraph GK["🧠 Remember"]
@@ -92,7 +93,7 @@ flowchart TB
 
     classDef agent fill:#0d1117,stroke:#FF7A00,stroke-width:2px,color:#ffffff;
     classDef core fill:#0d1117,stroke:#00ADD8,stroke-width:2px,color:#ffffff;
-    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,RN,DP,OM,WF,ORCH agent;
+    class D,S,K,R,P,U,Q,W,X,L,SC,SP,ES,SB,MG,TG,FK,BC,IT,RN,DP,OS,OM,WF,ORCH agent;
     class LLM core;
 ```
 
@@ -111,7 +112,7 @@ is one registry entry — no keyword chains or prompt prose to edit.**
 
 ## 🤖 The agents
 
-24 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
+25 specialists, each its **own Go module** you can run standalone. The recurring pattern: **the model
 proposes, Go disposes** — a deterministic guardrail validates every answer.
 
 🧭 **[`orchestrator`](orchestrator)** — the front door. Routes any query to the right agent, **LLM-first**
@@ -143,6 +144,7 @@ over a [capability registry](orchestrator), with a `/capabilities` discovery end
 - **[`incident-triage-agent`](agents/sdlc/incident-triage-agent)** — alert → root cause + owner, ownership resolved in Go, never the model
 - **[`release-notes-agent`](agents/sdlc/release-notes-agent)** — merged PRs → changelog, **closed-set category guardrail in Go**
 - **[`dependency-agent`](agents/sdlc/dependency-agent)** — validates dependency bumps; **semver + major-bump policy computed in Go**
+- **[`oncall-summary-agent`](agents/sdlc/oncall-summary-agent)** — incident channel → timeline + action items, owners resolved only to real participants, **never the model's guess**
 
 **🧠 Remember**
 - **[`org-memory`](agents/knowledge/org-memory)** — recalls the *why* behind past decisions before you make the next one; ranking, precision floor and feedback all **decided in Go**
@@ -269,6 +271,7 @@ the payoff: **176K tokens saved** by recall vs naive context, and climbing.
 | | | | 8021 | release-notes-agent |
 | | | | 8022 | dependency-agent |
 | | | | 8023 | org-memory |
+| | | | 8024 | oncall-summary-agent |
 | | | | 8088 | claude-openai-shim |
 
 Each agent is **its own directory and Go module**, grouped by capability:
@@ -279,7 +282,7 @@ agents/
 ├── retrieval/         data · sql · kb · research · local-rag · support · memory
 ├── text/              summarizer · pii-redaction · extraction
 ├── sdlc/              code-review · spec · estimation · scaffold · migration · test-gen · flaky-test ·
-│                      breaking-change · incident-triage · release-notes · dependency
+│                      breaking-change · incident-triage · release-notes · dependency · oncall-summary
 └── automation/        scheduler · workflow
 observability/         docker-compose: Jaeger + Prometheus + Grafana
 localtest/             the keyless claude-openai-shim
