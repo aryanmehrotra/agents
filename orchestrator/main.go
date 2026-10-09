@@ -77,9 +77,16 @@ var registry = []specialist{
 	{"flaky", "flaky-test-agent", "http://localhost:8018", "flaky", []string{"text"},
 		"find flaky tests in CI run history — tests that both pass and fail across runs — and recommend quarantine",
 		[]string{"flaky", "flaky test", "flaky tests", "quarantine", "intermittent test", "ci history", "flaky ci"}},
+	// oncall-summary is checked before triage: its keywords are the more specific "distill the
+	// channel" phrasing, while triage keeps the bare "incident" as its own broader fallback — without
+	// this ordering, triage's "incident" keyword would shadow every oncall-summary query that happens
+	// to mention "incident" too.
+	{"oncall-summary", "oncall-summary-agent", "http://localhost:8024", "oncall-summary", []string{"messages"},
+		"distil an incident channel's chat log into a timeline and action items",
+		[]string{"oncall", "on-call", "incident channel", "incident timeline", "catch me up", "catch up on the incident", "action items", "incident recap", "incident summary", "postmortem"}},
 	{"triage", "incident-triage-agent", "http://localhost:8020", "triage", []string{"alert"},
 		"triage a production alert / stack trace / incident to a likely root cause and owning team",
-		[]string{"incident", "on-call", "oncall", "root cause", "alert fired", "paging", "stack trace", "runbook", "postmortem"}},
+		[]string{"incident", "root cause", "alert fired", "paging", "stack trace", "runbook"}},
 	{"release-notes", "release-notes-agent", "http://localhost:8021", "release-notes", []string{"text"},
 		"draft a changelog / release notes from a list of merged pull requests",
 		[]string{"release notes", "changelog", "change log", "draft the changelog", "merged prs", "merged pull requests", "what's new", "whats new"}},
