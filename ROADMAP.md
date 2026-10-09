@@ -28,6 +28,7 @@ auth, rate-limiting and resilience for free.
 - **flaky-test-agent** — mines CI run history for flaky tests; detection is **deterministic Go** (a test is flaky iff it both passed and failed across the runs), ranked by fail rate with a quarantine list, and always-failing tests are separated out as broken-not-flaky — the model only annotates a likely cause, and a model outage loses only the annotations
 - **breaking-change-agent** — detects API/contract breaking changes between two OpenAPI-shaped specs before merge; detection is **deterministic Go** (structural diff over paths, parameters, request/response schemas — removed endpoints, newly-required fields, changed types, shrunk enums), decided before the model ever runs, so text inside the spec itself can't talk it out of a real finding — the model only writes an advisory migration note per already-detected break
 - **incident-triage-agent** — triages an alert/stack trace to a likely root cause and owning team; the model only proposes — ownership is resolved from a deterministic Go registry (never the model's guess), every cited evidence quote is verified verbatim against the input, and any runbook URL is SSRF-guarded before it's returned, so a prompt injection embedded in a log line can't hijack routing or leak a metadata-endpoint URL
+- **oncall-summary-agent** — distils an incident channel's raw chat log into a timeline and action items; the timeline is never model-authored at all — it's built directly from the real messages, sorted and de-duplicated **in Go**, with the model only assigning each one a closed-set category — and an action item's owner is only ever someone who actually posted in the channel (or is on a caller roster), its evidence quote and any link verified verbatim against the transcript and, for a link, SSRF-guarded, so a hostile message that is both grounded *and* real (an attacker's own pasted text) still can't hijack ownership or leak a metadata-endpoint URL
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -72,6 +73,32 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-10-09** — added **oncall-summary-agent**: the second "Operate" stage of the SDLC suite,
+  alongside incident-triage-agent — it distils an incident channel's raw chat log into a chronological
+  timeline and a list of action items. Once an incident is triaged, someone still has to read the whole
+  back-and-forth and write up the timeline and follow-ups by hand; agentic incident tooling is moving
+  past one-shot alert summaries toward assistants that live in the channel itself, keeping a running
+  timeline as the incident unfolds and turning action items mentioned mid-incident into tracked
+  follow-ups automatically ([Rootly, "What is AI incident management and how does it
+  work?"](https://rootly.com/ai-sre-guide/ai-incident-management.md)). An incident channel is the same
+  kind of attacker-influenced text incident-triage-agent already treats carefully, so the model only
+  proposes; Go disposes on three fronts: the **timeline is never model-authored** — it's built directly
+  from the real messages, sorted chronologically and de-duplicated in Go, with the model only assigning
+  each real message a category from a closed set (an unrecognized one falls back to `communication`);
+  an action item's **owner is only ever someone who actually posted** in the channel or is on a
+  caller-supplied roster, never taken on the model's word, so a name picked up from injected text that
+  never posted falls back to `unassigned` with the model's guess kept only as an unverified side note;
+  and an action item's evidence quote, and any link it cites, must appear **verbatim in the transcript**
+  and a link is additionally run through the same SSRF-style guardrail incident-triage-agent and
+  research-agent use — proven in `TestGuardrailHostilePromptInjection` with a message whose attacker-
+  pasted cloud-metadata URL really is grounded in the transcript (so grounding alone would let it
+  through) and is still refused by the SSRF check. The agent also accepts `messages` as a single pasted
+  chat-log string (parsed deterministically line-by-line), not just a structured array, so it works
+  through the orchestrator's `/assistant` route, which can only ever fill a body field with one plain
+  string. Wired into the orchestrator's new `oncall-summary` route, checked ahead of `triage` in the
+  keyword fallback (its own keywords are more specific, so triage's broad `incident` keyword can't
+  shadow it) for oncall/incident-channel/catch-me-up/action-items/postmortem requests. Also scraped on
+  Prometheus port `2146`.
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
   re-arguing what it already settled. Retrieval is dense cosine plus scope match with a
