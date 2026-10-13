@@ -73,6 +73,7 @@ func TestKeywordFallback(t *testing.T) {
 		"write unit tests for this function":                    "testgen",
 		"find the flaky tests in our ci history":                "flaky",
 		"check this openapi diff for breaking changes":          "breakingchange",
+		"give me the war room recap and action items":           "oncall-summary",
 		"triage this incident and find the root cause":          "triage",
 		"draft the changelog for the merged prs this week":      "release-notes",
 		"check for outdated dependencies in our go.mod":         "deps",
