@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils a raw incident channel transcript into a chronological timeline, key events and a grounded action-item list; the timeline's order is computed deterministically in Go from parsed timestamps (never the model's), every message index the model cites is checked against the real parsed transcript, an action item's owner is only ever a verbatim `@mention` from the exact message it's cited from, and its link is only kept if it's verbatim in that message **and** passes the same SSRF guardrail `research-agent`/`incident-triage-agent` use — so a hostile line that injects itself into the channel is refused even when its own link is technically "grounded"
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -72,6 +73,29 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-10-24** — added **oncall-summary-agent**: the last entry in the "Operate" stage of the SDLC
+  suite — it turns a raw incident channel transcript (the Slack/Teams thread an incident actually runs
+  in) into a chronological timeline, the handful of key events that mattered, and a grounded action-item
+  list for the handoff. The trend isn't "better dashboards" — incident response is bottlenecked on
+  coordination across people and tools, not a shortage of monitoring data ([Andela, "Commanding the
+  Chaos: How AI Agents Handle Enterprise Incidents"](https://www.andela.com/publication/commanding-the-chaos-how-ai-agents-handle-enterprise-incidents),
+  2026), and the incident channel is exactly where that coordination happens and exactly what nobody has
+  time to re-read once the fire is out. It's also the most adversarial input this repo's agents see: a
+  channel transcript is written live, under pressure, by every human (and bot) in the room — fertile
+  ground for a prompt injection aimed at the summary itself. So the model only proposes a summary, which
+  messages were turning points, and action items; Go disposes — the timeline's chronological order is
+  computed deterministically from parsed timestamps (carrying the last known time forward onto untimed
+  lines, never reordered by the model), every message index the model cites is checked against the real
+  parsed transcript and dropped if it doesn't exist, an action item's owner is only ever a verbatim
+  `@mention` copied from the exact message it's cited from (an invented or cross-message name is refused
+  and kept only as an unverified side note), and its link is only kept if it's verbatim in that same
+  message **and** passes the same SSRF-style guardrail `research-agent`/`incident-triage-agent` use —
+  proven in `main_test.go` with a hostile line that smuggles a cloud-metadata URL into the channel as a
+  fake "official follow-up link": it's technically grounded (the attacker really did type it), and still
+  refused. Wired into the orchestrator's new `oncall-summary` route, placed ahead of `summarize` in the
+  keyword fallback order (its own keywords like "oncall summary" would otherwise be shadowed by
+  `summarize`'s bare "summary" keyword) and ahead of `triage`'s overlapping "postmortem"/"oncall"
+  vocabulary.
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
   re-arguing what it already settled. Retrieval is dense cosine plus scope match with a
