@@ -77,6 +77,12 @@ var registry = []specialist{
 	{"flaky", "flaky-test-agent", "http://localhost:8018", "flaky", []string{"text"},
 		"find flaky tests in CI run history — tests that both pass and fail across runs — and recommend quarantine",
 		[]string{"flaky", "flaky test", "flaky tests", "quarantine", "intermittent test", "ci history", "flaky ci"}},
+	// oncallsummary is listed BEFORE triage: several of its keywords ("incident channel", "incident
+	// timeline", ...) contain triage's own bare "incident" keyword as a substring, so it must be
+	// checked first or every one of those queries would always fall through to triage instead.
+	{"oncallsummary", "oncall-summary-agent", "http://localhost:8024", "summarize", []string{"text"},
+		"distil an incident channel / war-room chat transcript into a timeline and action items with verified owners",
+		[]string{"incident channel", "incident timeline", "war room", "incident recap", "incident chat", "chat transcript", "distil the incident", "action items from the incident", "incident log"}},
 	{"triage", "incident-triage-agent", "http://localhost:8020", "triage", []string{"alert"},
 		"triage a production alert / stack trace / incident to a likely root cause and owning team",
 		[]string{"incident", "on-call", "oncall", "root cause", "alert fired", "paging", "stack trace", "runbook", "postmortem"}},
