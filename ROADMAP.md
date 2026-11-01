@@ -31,6 +31,7 @@ auth, rate-limiting and resilience for free.
 - **release-notes-agent** — drafts a changelog / release notes from a set of merged PRs; the model only writes prose — every PR is bucketed into a **closed set of categories in Go** (a category the model invents is rejected, not passed through), each entry is tied back to a real PR number from the input, and a model outage still returns the deterministic grouping
 - **org-memory** — captures the *why* behind a decision and recalls the few relevant ones before the next decision is made; the model only embeds and phrases — retrieval is cosine plus scope match with a precision floor that injects **nothing** rather than something weak, ordering is position-aware, and the feedback loop (helpful / not_relevant) boosts or demotes deterministically in Go, auto-quarantining a decision that keeps being wrong without ever deleting it
 - **dependency-agent** — proposes and validates dependency version bumps for a `go.mod`; the real semver bump kind (patch/minor/major) is computed from the version numbers **in Go**, a major bump always holds for manual review regardless of the model's opinion, and only modules the caller actually listed as available updates are ever considered — a bump is written only if the current version in the supplied `go.mod` matches what was claimed, then the rewritten line is re-verified before being kept
+- **oncall-summary-agent** — distils an incident channel / war-room chat transcript into a chronological timeline and action items with owners; the timeline is sorted **in Go** from each message's own timestamp (never the model's reconstruction, and an unparseable timestamp is moved to the end, flagged, never dropped), every action item's owner is resolved from a deterministic Go roster (never the model's guess — an unrecognised name falls back to `unassigned`), and every evidence quote, highlight and "reference link" must be verified verbatim against the transcript — a reference link must *also* pass the same SSRF-style guardrail `research-agent`/`incident-triage-agent` use before it's ever returned, even when the link is itself a verbatim quote from a hostile message planted in the channel
 
 ## Planned agents — the software development lifecycle
 
@@ -59,7 +60,7 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 **Operate**
 - [x] **incident-triage-agent** — triage an alert or stack trace to a likely root cause and owner, grounded in logs and traces ✅ *shipped*
-- [ ] **oncall-summary-agent** — distil an incident channel into a timeline and action items
+- [x] **oncall-summary-agent** — distil an incident channel into a timeline and action items ✅ *shipped*
 
 ## Toward a product
 
@@ -72,6 +73,31 @@ is verified (it compiles, the tests pass, the check is real) before anything is 
 
 ## Changelog
 
+- **2026-11-01** — added **oncall-summary-agent**: the last unshipped item on the "Operate" stage of the
+  SDLC suite — it distils an incident channel / war-room chat transcript into a chronological timeline
+  and a list of action items with owners, closing out the triage → summary pipeline that
+  incident-triage-agent starts. Automated incident recaps and postmortem drafting are an active area of
+  2026 agent development — a USENIX SREcon26 talk frames AI agents for incident investigation as
+  increasingly common but still messy in practice ([USENIX, "AI Agents for Incident Investigation: The
+  Good, The Bad, and The
+  Ugly"](https://www.usenix.org/conference/srecon26americas/presentation/budichenko)), and productized
+  "incident post-mortem & on-call pack" agent templates are already being offered as a packaged workflow
+  ([Gamut, "Incident Post-Mortem & On-Call Pack
+  Agent"](https://www.gamut.so/agent-templates/product-engineering/incident-postmortem-oncall)). An
+  incident channel is exactly the kind of attacker-influenced, interleaved, out-of-order text a model
+  reorders inconsistently and can be prompt-injected through, so two things are never taken on the
+  model's word: the **timeline order** is computed **in Go** from each message's own timestamp — never
+  the model's reconstruction, and a message with no parseable timestamp is moved to the end, flagged,
+  never dropped — and **ownership**, resolved from a deterministic Go roster, never the model's guess (an
+  unrecognised name falls back to `owner_team: "unassigned"`). Every action item's and highlight's
+  evidence quote is verified verbatim against the transcript, and a "reference link" the model surfaces
+  must *both* appear verbatim in the transcript (so it can't invent one) *and* pass the same SSRF-style
+  guardrail `research-agent`/`incident-triage-agent` use — proven in `main_test.go` with a hostile
+  message that IS present verbatim in the transcript but whose link targets the cloud-metadata endpoint,
+  refused regardless. Wired into the orchestrator's new `oncall-summary` route, placed ahead of
+  `summarize` in the keyword-fallback order (so "oncall summary" doesn't get swallowed by the generic
+  summarizer's bare `"summary"` keyword) and ahead of `triage` (so "incident"-flavoured recap requests
+  don't get misrouted to root-cause triage).
 - **2026-08-14** — added **org-memory**: the "remember" layer — it captures the reasoning behind a
   decision and surfaces the relevant few the next time a similar one comes up, so a team stops
   re-arguing what it already settled. Retrieval is dense cosine plus scope match with a
